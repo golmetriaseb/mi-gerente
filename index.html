@@ -3,7 +3,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Mi Gerente">
 <link rel="apple-touch-icon" href="icon.png">
@@ -43,6 +43,9 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box;margin:0;padding:0}
+html{touch-action:manipulation;-webkit-touch-callout:none}
+body{-webkit-user-select:none;user-select:none}
+input,textarea{-webkit-user-select:text;user-select:text;font-size:max(16px,1em)}
 html,body{height:100%}
 body{background:var(--bg) radial-gradient(900px 420px at 85% -80px,color-mix(in srgb,var(--accent) 12%,transparent),transparent) no-repeat;color:var(--ink);font:400 16px/1.5 var(--body);-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;font-variant-numeric:tabular-nums}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:inherit;-webkit-tap-highlight-color:transparent}
@@ -999,6 +1002,9 @@ document.addEventListener('input',e=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&cur)closeSheet();});
 let rz;addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(refreshPlan,150);});
 
+/* sin zoom: se comporta como app */
+['gesturestart','gesturechange','gestureend'].forEach(ev=>document.addEventListener(ev,e=>e.preventDefault()));
+document.addEventListener('touchmove',e=>{if(e.touches&&e.touches.length>1)e.preventDefault();},{passive:false});
 applyTheme();render(true);
 window.__norte={simulate,calc,S:()=>S};
 })();
