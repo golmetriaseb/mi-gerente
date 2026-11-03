@@ -258,6 +258,7 @@ svg.chart text.em{fill:var(--ink);font-weight:600;paint-order:stroke;stroke:var(
 .tag{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--gold);border:1px solid color-mix(in srgb,var(--gold) 50%,transparent);padding:3px 9px;border-radius:999px;margin-left:8px;vertical-align:2px}
 .card .seg{margin:0}
 .row:active,.step:active{opacity:.65}
+.row.done{opacity:.55}
 .tag.good{color:var(--good);border-color:color-mix(in srgb,var(--good) 50%,transparent)}
 .tag.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
 .tag.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 50%,transparent)}
@@ -349,7 +350,7 @@ const PLANS={
 };
 const CATS=['Comida fuera','Transporte','Ocio','Compras','Salud','Hogar','Otros'];
 const DEF=()=>({name:'Sebas',theme:'auto',incomes:[],essentials:[],debts:[],payments:[],expenses:[],
-  goals:[{id:'emg',name:'Fondo de emergencia',saved:0,target:0,auto:true}],plan:'equilibrado',strategy:'avalancha',demo:false,accounts:[],moves:[]});
+  goals:[{id:'emg',name:'Fondo de emergencia',saved:0,target:0,auto:true}],plan:'equilibrado',strategy:'avalancha',demo:false,accounts:[],moves:[],paid:{}});
 let S=DEF();
 try{const raw=localStorage.getItem(KEY);if(raw){S=Object.assign(DEF(),JSON.parse(raw));}}catch(e){}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
@@ -642,6 +643,7 @@ function vInicio(c){
   h+=heroCard({label:'Te queda este mes',chip:'Plan '+PLANS[S.plan].n,val:c.free,neg:c.free<0,
     sub:!c.I?'Añade tu ingreso en Mi dinero para calcular tu mes.':(c.free<0?'Estás gastando más de lo que entra.':'Después de tus gastos fijos y cuotas.'),
     three:true,foot:hv('Ingreso',fmt(c.I))+hv('Gastos',fmt(c.E+c.M))+hv('Ahorro',fmt(c.savings+c.lumpSave))});
+  h+=homeBlock(c);
   const near=c.active.find(d=>{const k=lumpIdx(d);return k>=1&&k<=4&&d.lump>0;});
   if(near) h+='<section><div class="card tight">'+lumpInsights(c).slice(0,1).map(insHTML).join('')+'</div><div style="margin-top:10px;text-align:right"><button class="link" data-tab="deudas">Ver en Deudas</button></div></section>';
   const parts=[
@@ -668,13 +670,14 @@ function vInicio(c){
 }
 
 function vDinero(c){
-  const inc=S.incomes.map(x=>row('edit-inc',x.id,x.name,'al mes',fmt(x.amount))).join('');
-  const ess=S.essentials.map(x=>row('edit-ess',x.id,x.name,'al mes',fmt(x.amount))).join('');
+  const inc=S.incomes.map(x=>row('edit-inc',x.id,x.name,x.day?'Cada día '+x.day:'Varía',fmt(x.amount))).join('');
+  const ess=S.essentials.map(x=>row('edit-ess',x.id,x.name,x.day?'Cada día '+x.day:'Varía',fmt(x.amount))).join('');
   const used=S.essentials.map(x=>x.name.toLowerCase());
   const sug=['Arriendo','Alimentación','Servicios básicos','Transporte','Internet y celular','Salud','Educación'].filter(n=>!used.includes(n.toLowerCase()));
   let h=demoBanner();
   if(c.I>0) h+=heroCard({label:'Te queda al mes',val:c.free,neg:c.free<0,sub:c.free<0?'Estás gastando más de lo que entra.':'Después de esenciales y mínimos de deuda. El plan lo reparte entre deuda, ahorro y gastos.'});
   else h+=head('Mi dinero','Lo que entra y lo que sale cada mes. Las cuotas de tus deudas no van aquí.');
+  h+='<section><div class="sec"><h2 class="h">Calendario de '+MESES[new Date().getMonth()]+'</h2></div><div class="card tight"><div class="rows">'+(monthEvents(ym()).length?monthEvents(ym()).sort((a,b)=>(a.day||99)-(b.day||99)).map(evRow).join(''):empty('Añade ingresos y gastos con su día y los verás aquí.'))+'</div></div><p class="small muted" style="margin-top:10px">Toca un pago o ingreso para marcarlo como hecho. Ponles su día al editarlos.</p></section>';
   h+='<section><div class="sec"><h2 class="h">Ingresos</h2><button class="link" data-act="add-inc">Añadir</button></div><div class="card tight"><div class="rows">'+(inc||empty('Añade tu sueldo y cualquier otro ingreso fijo, como asesorías o ventas.'))+'</div>'+
     (S.incomes.length?'<div class="tot"><span class="muted">Total al mes</span><b>'+fmt(c.I)+'</b></div>':'')+'</div></section>'+
     '<section><div class="sec"><h2 class="h">Gastos esenciales</h2><button class="link" data-act="add-ess">Añadir</button></div><div class="card tight"><div class="rows">'+(ess||empty('Lo que pagas cada mes sí o sí. Las cuotas de deudas van en Deudas.'))+'</div>'+
@@ -830,6 +833,7 @@ function fieldHTML(f){
   const id='f-'+f.id;let inner='';
   if(f.type==='money') inner='<div class="inp"><span>$</span><input id="'+id+'" inputmode="decimal" autocomplete="off" placeholder="'+(f.ph||'0')+'" value="'+esc(f.value)+'"></div>';
   else if(f.type==='pct') inner='<div class="inp"><input id="'+id+'" inputmode="decimal" autocomplete="off" placeholder="0" value="'+esc(f.value)+'"><span>% anual</span></div>';
+  else if(f.type==='int') inner='<div class="inp"><input id="'+id+'" inputmode="numeric" autocomplete="off" placeholder="'+esc(f.ph||'')+'" value="'+esc(f.value)+'"></div>';
   else if(f.type==='month') inner='<div class="inp"><input id="'+id+'" type="month" value="'+esc(f.value)+'"></div>';
   else if(f.type==='date') inner='<div class="inp"><input id="'+id+'" type="date" value="'+esc(f.value)+'"></div>';
   else if(f.type==='area') inner='<div class="inp"><textarea id="'+id+'" rows="6" '+(f.ro?'readonly':'')+' placeholder="'+esc(f.ph||'')+'">'+esc(f.value)+'</textarea></div>';
@@ -844,7 +848,7 @@ function openSheet(cfg){
   const el=$('#sheet');
   el.innerHTML='<div class="scrim" data-act="close"></div><form class="panel" id="sf" novalidate><div class="grab"></div><h2>'+esc(cfg.title)+'</h2>'+(cfg.sub?'<p class="sub">'+cfg.sub+'</p>':'')+
     (cfg.fields||[]).map(fieldHTML).join('')+(cfg.after||'')+
-    '<div class="actions">'+(cfg.del?'<button type="button" class="link danger" data-act="sheet-del">Eliminar</button>':'<button type="button" class="link mute" data-act="close">Cancelar</button>')+(cfg.noSubmit?'':'<button type="submit" class="btn primary">'+(cfg.submit||'Guardar')+'</button>')+'</div></form>';
+    '<div class="actions">'+(cfg.del?'<button type="button" class="link danger" data-act="sheet-del">'+(cfg.delLabel||'Eliminar')+'</button>':'<button type="button" class="link mute" data-act="close">'+(cfg.cancel||'Cancelar')+'</button>')+(cfg.noSubmit?'':'<button type="submit" class="btn primary">'+(cfg.submit||'Guardar')+'</button>')+'</div></form>';
   el.classList.add('open');
   $('#sf').addEventListener('submit',e=>{
     e.preventDefault();
@@ -865,18 +869,18 @@ async function copyText(text,label){
 
 /* ---------- formularios ---------- */
 function incSheet(it){
-  openSheet({title:it?'Editar ingreso':'Nuevo ingreso',sub:'Lo que recibes al mes, ya en tu bolsillo.',
-    fields:[{id:'name',label:'Nombre',type:'text',value:it?it.name:'',ph:'Sueldo',suggest:it?[]:['Sueldo','Asesorías','Ventas']},{id:'amount',label:'Monto mensual',type:'money',value:it?it.amount:''}],
+  openSheet({title:it?'Editar ingreso':'Nuevo ingreso',sub:'Lo que recibes, ya en tu bolsillo.',
+    fields:[{id:'name',label:'Nombre',type:'text',value:it?it.name:'',ph:'Sueldo',suggest:it?[]:['Sueldo','Asesorías','Ventas']},{id:'amount',label:'Monto mensual',type:'money',value:it?it.amount:''},{id:'day',label:'Día del mes en que entra',type:'int',value:it&&it.day?it.day:'',ph:'Ej. 7',hint:'Déjalo vacío si cambia cada mes.'}],
     del:it?()=>{S.incomes=S.incomes.filter(x=>x.id!==it.id);closeSheet();done();}:null,
-    onSubmit:v=>{const a=num(v.amount);if(!v.name.trim()||a<=0)return bad('Pon un nombre y un monto mayor a cero.');
-      if(it){it.name=v.name.trim();it.amount=a;}else S.incomes.push({id:uid(),name:v.name.trim(),amount:a});done();}});
+    onSubmit:v=>{const a=num(v.amount),D=parseDay(v.day);if(!v.name.trim()||a<=0)return bad('Pon un nombre y un monto mayor a cero.');if(D===false)return bad('El día debe ser entre 1 y 31.');
+      if(it){it.name=v.name.trim();it.amount=a;it.day=D;}else S.incomes.push({id:uid(),name:v.name.trim(),amount:a,day:D});done();}});
 }
 function essSheet(it,name){
   openSheet({title:it?'Editar gasto esencial':'Nuevo gasto esencial',sub:'Lo que pagas cada mes sí o sí.',
-    fields:[{id:'name',label:'Nombre',type:'text',value:it?it.name:(name||''),ph:'Arriendo'},{id:'amount',label:'Monto mensual',type:'money',value:it?it.amount:''}],
+    fields:[{id:'name',label:'Nombre',type:'text',value:it?it.name:(name||''),ph:'Arriendo'},{id:'amount',label:'Monto mensual',type:'money',value:it?it.amount:''},{id:'day',label:'Día del mes en que lo pagas',type:'int',value:it&&it.day?it.day:'',ph:'Ej. 5',hint:'Déjalo vacío si cambia cada mes.'}],
     del:it?()=>{S.essentials=S.essentials.filter(x=>x.id!==it.id);closeSheet();done();}:null,
-    onSubmit:v=>{const a=num(v.amount);if(!v.name.trim()||a<=0)return bad('Pon un nombre y un monto mayor a cero.');
-      if(it){it.name=v.name.trim();it.amount=a;}else S.essentials.push({id:uid(),name:v.name.trim(),amount:a});done();}});
+    onSubmit:v=>{const a=num(v.amount),D=parseDay(v.day);if(!v.name.trim()||a<=0)return bad('Pon un nombre y un monto mayor a cero.');if(D===false)return bad('El día debe ser entre 1 y 31.');
+      if(it){it.name=v.name.trim();it.amount=a;it.day=D;}else S.essentials.push({id:uid(),name:v.name.trim(),amount:a,day:D});done();}});
   if(name){setTimeout(()=>{const i=$('#f-amount');if(i)i.focus();},80);}
 }
 function debtSheet(it){
@@ -886,16 +890,18 @@ function debtSheet(it){
       {id:'balance',label:'Saldo de capital hoy',type:'money',value:it?it.balance:''},
       {id:'rate',label:'Tasa de interés real',type:'pct',value:it?it.rate:'',hint:'Si de cada cuota casi no baja el capital, tu tasa real es más alta que la del contrato. Pide la tasa efectiva al banco.'},
       {id:'min',label:'Cuota mensual',type:'money',value:it?it.min:'',hint:'La cuota que pagas cada mes después del periodo de gracia.'},
+      {id:'day',label:'Día del mes de pago',type:'int',value:it&&it.day?it.day:'',ph:'Ej. 25'},
       {id:'grace',label:'Mes del pago grande (si hay periodo de gracia)',type:'month',value:it&&it.graceUntil?it.graceUntil:'',hint:'Hasta ese mes no pagas cuota. Déjalo vacío si pagas todos los meses.'},
       {id:'lump',label:'Monto del pago grande',type:'money',value:it&&it.lump?it.lump:'',hint:'Lo que te cobran ese mes, normalmente los intereses acumulados.'}],
     del:it?()=>{S.debts=S.debts.filter(x=>x.id!==it.id);V.sim=null;closeSheet();done();}:null,
-    onSubmit:v=>{const b=num(v.balance),r=num(v.rate),m=num(v.min),L=num(v.lump);
+    onSubmit:v=>{const b=num(v.balance),r=num(v.rate),m=num(v.min),L=num(v.lump),D=parseDay(v.day);
+      if(D===false)return bad('El día de pago debe ser entre 1 y 31.');
       if(!v.name.trim()||b<=0)return bad('Pon un nombre y el saldo que debes.');
       if(r<0||r>200)return bad('Revisa la tasa: debe estar entre 0 y 200.');
       if(v.grace&&lumpIdx({graceUntil:v.grace})<1)return bad('El mes del pago grande ya pasó. Elige un mes futuro.');
       const g=v.grace||'';
-      if(it){it.name=v.name.trim();it.balance=b;it.rate=r;it.min=m;it.initial=Math.max(it.initial,b);it.graceUntil=g;it.lump=g?L:0;}
-      else S.debts.push({id:uid(),name:v.name.trim(),balance:b,initial:b,rate:r,min:m,graceUntil:g,lump:g?L:0});
+      if(it){it.name=v.name.trim();it.balance=b;it.rate=r;it.min=m;it.initial=Math.max(it.initial,b);it.graceUntil=g;it.lump=g?L:0;it.day=D;}
+      else S.debts.push({id:uid(),name:v.name.trim(),balance:b,initial:b,rate:r,min:m,graceUntil:g,lump:g?L:0,day:D});
       V.sim=null;done();}});
 }
 
@@ -990,25 +996,125 @@ function paydSheet(){
       V.sim=null;done();toast(d.balance<=0.005?'Deuda saldada. Bien hecho.':'Abono registrado.');}});
 }
 
+/* ---------- calendario de pagos ---------- */
+const dim=(y,m)=>new Date(y,m+1,0).getDate();
+function parseDay(v){const t=String(v==null?'':v).trim();if(!t)return 0;const n=parseInt(t,10);return(n>=1&&n<=31)?n:false;}
+function dueDate(day,k){const a=k.split('-').map(Number);return new Date(a[0],a[1]-1,Math.min(day,dim(a[0],a[1]-1)));}
+function monthEvents(k){
+  const pd=S.paid[k]||{},ev=[];
+  const add=(kind,id,name,amount,day,extra)=>{const r=pd[id];ev.push(Object.assign({kind,id,name,amount,day:day||0,done:!!r,real:r||null},extra||{}));};
+  S.incomes.forEach(x=>add('in','i:'+x.id,x.name,x.amount,x.day));
+  S.essentials.forEach(x=>add('out','e:'+x.id,x.name,x.amount,x.day));
+  if(k===ym())S.debts.filter(d=>d.balance>0.005||pd['d:'+d.id]).forEach(d=>{
+    const kl=lumpIdx(d);
+    if(kl===1&&d.lump>0)add('out','d:'+d.id,'Pago grande · '+d.name,d.lump,d.day,{debt:d.id,lump:true});
+    else if(kl<1&&d.min>0)add('out','d:'+d.id,'Cuota · '+d.name,d.min,d.day,{debt:d.id});
+  });
+  return ev;
+}
+function evRow(e){
+  const today=new Date().getDate();let st,cls='';
+  if(e.done){st='Hecho · '+fmt2(e.real.a);cls='pos';}
+  else if(!e.day){st='Varía';}
+  else{const d=e.day-today;st=d<0?'Pendiente desde el '+e.day:d===0?'Hoy':d===1?'Mañana':'Día '+e.day+' · en '+d+' días';if(d<0)cls='neg';}
+  return '<button class="row'+(e.done?' done':'')+'" data-act="mark" data-id="'+e.id+'"><span class="m"><b>'+esc(e.name)+'</b><small>'+(e.kind==='in'?'Ingreso':'Pago')+' · '+st+'</small></span><span class="a '+(e.kind==='in'?'pos':'')+'">'+(e.kind==='in'?'+':'')+fmt(e.amount)+'</span></button>';
+}
+function flowAlert(c){
+  const now=new Date(),today=now.getDate(),n=dim(now.getFullYear(),now.getMonth());
+  const ev=monthEvents(ym()).filter(e=>!e.done&&e.day>=today&&e.day>0);
+  let bal=c.liquid,min=bal,minDay=0;
+  for(let d=today;d<=n;d++){ev.filter(e=>e.day===d).forEach(e=>{bal+=e.kind==='in'?e.amount:-e.amount;});if(bal<min){min=bal;minDay=d;}}
+  return min<0?{day:minDay,min}:null;
+}
+function nextIncomeInfo(){
+  const now=new Date(),k=ym(),today=now.getDate();
+  const cand=monthEvents(k).filter(e=>e.kind==='in'&&!e.done&&e.day>=today&&e.day>0).sort((a,b)=>a.day-b.day)[0];
+  if(cand)return {date:dueDate(cand.day,k),name:cand.name,amount:cand.amount};
+  const ins=S.incomes.filter(x=>x.day>0).sort((a,b)=>a.day-b.day)[0];
+  return ins?{date:dueDate(ins.day,shiftMonth(k,1)),name:ins.name,amount:ins.amount}:null;
+}
+function homeBlock(c){
+  const k=ym(),today=new Date().getDate(),ev=monthEvents(k);let h='';
+  ev.filter(e=>e.kind==='in'&&!e.done&&e.day>0&&e.day<=today).forEach(e=>{
+    h+='<section><div class="card"><div class="ins info" style="padding:0"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true">'+ICN.info+'</svg></span><div><b>¿Ya te entró '+esc(e.name)+'?</b><p>Lo esperabas el día '+e.day+'. Regístralo y te digo cómo repartirlo, empezando por tus pagos.</p><button class="link" data-act="mark" data-id="'+e.id+'">Registrar ingreso</button></div></div></div></section>';
+  });
+  const fa=flowAlert(c);
+  if(fa)h+='<section><div class="card tight">'+insHTML({t:'bad',h:'El día '+fa.day+' te quedarías en '+fmt(fa.min),p:'Según tus pagos e ingresos con fecha, tu dinero disponible no alcanza ese día. Revisa el calendario y prioriza arriendo y servicios.'})+'</div></section>';
+  const up=ev.filter(e=>!e.done&&e.day>0&&e.day-today<=7).sort((a,b)=>a.day-b.day).slice(0,6);
+  if(up.length)h+='<section><div class="sec"><h2 class="h">Próximos pagos</h2><button class="link" data-tab="dinero">Ver calendario</button></div><div class="card tight"><div class="rows">'+up.map(evRow).join('')+'</div></div></section>';
+  return h;
+}
+function revertPaid(k,id){
+  const r=(S.paid[k]||{})[id];if(!r)return;
+  const isIn=id.indexOf('i:')===0;
+  if(r.acc){const ac=accBy(r.acc);if(ac)ac.balance=Math.max(0,+(ac.balance+(isIn?-r.a:r.a)).toFixed(2));}
+  if(id.indexOf('d:')===0){const d=S.debts.find(x=>x.id===id.slice(2));if(d&&r.pr)d.balance=+(d.balance+r.pr).toFixed(2);S.payments=S.payments.filter(q=>q.ref!==k+id);}
+  S.moves=S.moves.filter(m=>m.ref!==k+id);
+  delete S.paid[k][id];
+}
+function markSheet(id){
+  const k=ym(),ev=monthEvents(k).find(e=>e.id===id);if(!ev)return;
+  const isIn=ev.kind==='in',rec=(S.paid[k]||{})[id],names=accNames(),none=isIn?'Sin sumar a una cuenta':'Sin descontar de una cuenta';
+  openSheet({title:isIn?'Ingreso recibido':'Marcar como pagado',sub:esc(ev.name)+(ev.day?' · día '+ev.day:'')+'. Esperado: '+fmt2(ev.amount)+'.',
+    fields:[{id:'amount',label:isIn?'Monto que entró':'Monto que pagaste',type:'money',value:rec?rec.a:ev.amount},
+      {id:'acc',label:isIn?'Depositar en':'Pagar desde',type:'chips',options:names.concat([none]),value:rec?(rec.acc||none):(names[0]||none)}],
+    submit:rec?'Guardar cambios':(isIn?'Registrar ingreso':'Marcar pagado'),delLabel:'Deshacer',
+    del:rec?()=>{revertPaid(k,id);closeSheet();done();toast('Deshecho.');}:null,
+    onSubmit:v=>{
+      const a=num(v.amount);if(a<=0)return bad('Pon un monto mayor a cero.');
+      const ac=v.acc===none?null:accBy(v.acc);
+      if(!isIn&&ac){const avail=ac.balance+(rec&&rec.acc===ac.name?rec.a:0);if(a>avail)return bad('No alcanza: '+ac.name+' tiene '+fmt2(avail)+'.');}
+      if(rec)revertPaid(k,id);
+      let pr=0;
+      if(ev.debt){const d=S.debts.find(x=>x.id===ev.debt);
+        if(d&&!ev.lump){const it=d.balance*d.rate/1200;pr=Math.max(0,Math.min(d.balance,a-it));d.balance=Math.max(0,+(d.balance-pr).toFixed(2));}
+        S.payments.push({id:uid(),debt:ev.debt,name:d?d.name:ev.name,amount:a,date:ymd(),ref:k+id});}
+      if(ac){ac.balance=+(ac.balance+(isIn?a:-a)).toFixed(2);S.moves.push({id:uid(),date:ymd(),kind:isIn?'dep':'wd',acc:ac.name,amount:a,note:(isIn?'Ingreso: ':'Pago: ')+ev.name,ref:k+id});}
+      S.paid[k]=S.paid[k]||{};S.paid[k][id]={a,acc:ac?ac.name:'',pr};
+      V.sim=null;done();
+      if(isIn)setTimeout(()=>adviseSheet(0,ev.name,a),80);
+    }});
+}
+function adviseSheet(addX,name,amount){
+  openSheet({title:'Plan para este dinero',sub:name?'Registraste '+fmt(amount)+' de '+esc(name)+'. Así lo repartiría:':'Así lo repartiría:',fields:[],after:adviseCash(addX),noSubmit:true,cancel:'Listo'});
+}
+function calText(){
+  const ev=monthEvents(ym()).sort((a,b)=>(a.day||99)-(b.day||99));
+  return ev.length?ev.map(e=>e.name+' ('+(e.kind==='in'?'ingreso ':'pago ')+fmt(e.amount)+(e.day?', día '+e.day:', varía')+(e.done?', hecho':', pendiente')+')').join('; '):'sin fechas registradas';
+}
+
 /* ---------- ¿qué hago con dinero nuevo? ---------- */
-function cashResult(X){
-  const c=calc(),P=PLANS[S.plan]||PLANS.equilibrado;
-  const lks=c.active.map(lumpIdx).filter(k=>k>=1),months=lks.length?Math.min.apply(null,lks)-1:0;
+function adviseCash(addX){
+  const c=calc(),P=PLANS[S.plan]||PLANS.equilibrado,now=new Date(),k=ym(),nk=shiftMonth(k,1);
+  const ni=nextIncomeInfo(),end=ni?ni.date:new Date(now.getFullYear(),now.getMonth()+1,0),endKey=ym(end),endDay=end.getDate();
+  const label=endDay+' de '+MESES[end.getMonth()];
+  const pick=key=>monthEvents(key).filter(e=>e.kind==='out'&&!e.done&&(key===k?(e.day===0||dueDate(e.day,key)<=end):(e.day>0&&e.day<endDay)));
+  let items=pick(k);if(endKey===nk)items=items.concat(pick(nk));
+  items.sort((a,b)=>(a.day||99)-(b.day||99));
+  const B=sum(items,'amount'),daysN=Math.max(1,Math.round((end-now)/864e5));
+  const liq=c.liquid+addX,R=liq-B;
+  const lks=c.active.map(lumpIdx).filter(x=>x>=1),months=lks.length?Math.min.apply(null,lks)-1:0;
   const lump=sum(c.active.filter(d=>lumpIdx(d)>=1),'lump'),hole=Math.max(0,-c.free)*months;
-  const target=c.cushion+lump+hole,gap=Math.max(0,target-c.liquid);
-  const toRes=Math.min(X,gap),rest=X-toRes,share=c.active.length?P.debt/(P.debt+P.pers):0;
-  const toDebt=Math.round(rest*share),toYou=Math.round(rest)-toDebt;
-  const rows=[];
-  if(toRes>0)rows.push(['Reserva',(lump>0?'Colchón, hueco de los meses sin cuota y pago grande de '+afterMonths(Math.min.apply(null,lks)-1)+'.':'Colchón de tus gastos fijos.'),toRes,'var(--c-save)']);
+  const target=lump>0?lump+hole:c.cushion;
+  const food=/comida|aliment|mercado|supermercado/i;
+  const rowsHTML=items.map(e=>'<div class="leg"><span class="dot" style="background:var(--c-ess)"></span><span><b>'+esc(e.name)+'</b><small>'+(e.day?'El día '+e.day:'Este mes')+(food.test(e.name)?' · unos '+fmt(e.amount/daysN)+' al día':'')+'</small></span><span class="a">'+fmt(e.amount)+'</span></div>').join('');
+  let h='<div class="lab" style="margin:4px 0 4px">Primero, tus pagos hasta el '+label+'</div>'+
+    (items.length?'<div class="legs">'+rowsHTML+'</div><div class="tot" style="border-top:0;padding:10px 0 0"><span class="muted">Separa en total</span><b>'+fmt(B)+'</b></div>':'<p class="small muted">No tienes pagos pendientes hasta esa fecha.</p>');
+  if(R<0)return h+'<div style="margin-top:12px">'+insHTML({t:'bad',h:'No te alcanza: faltan '+fmt(-R),p:'Con '+fmt(liq)+' disponibles no cubres esos pagos. Prioriza arriendo, servicios y comida, y no toques nada para ahorro ni deuda hasta que entre más dinero.'})+'</div>';
+  const toRes=Math.min(R,target),rest=R-toRes,share=c.active.length?P.debt/(P.debt+P.pers):0,toDebt=Math.round(rest*share),toYou=Math.round(rest)-toDebt,rows=[];
+  if(toRes>0)rows.push(['Reserva',lump>0?'Para el hueco de los meses sin cuota y el pago grande de '+afterMonths(Math.min.apply(null,lks)-1)+'.':'Colchón de tus gastos fijos.',toRes,'var(--c-save)']);
   if(toDebt>0){const e=c.plan.ok?lumpEffect(c,toDebt):null,pr=priority();rows.push(['Abonar a '+(pr?pr.name:'tu deuda'),e&&e.interest>1?'Ahorras '+fmt(e.interest)+' en intereses y terminas '+span(Math.max(0,e.months))+' antes.':'Baja el capital y los intereses.',toDebt,'var(--c-extra)']);}
   if(toYou>0)rows.push(['Para ti o tus metas','Lo que queda después de proteger tu reserva.',toYou,'var(--c-free)']);
-  const note=gap>toRes?insHTML({t:'warn',h:'Aún te faltan '+fmt(gap-toRes)+' de reserva',p:'Tu reserva completa sería de '+fmt(target)+' y hoy tienes '+fmt(c.liquid)+' disponibles. Mientras no la completes, no abones a la deuda.'}):insHTML({t:'good',h:'Tu reserva quedaría completa',p:'Con eso cubres el colchón'+(lump>0?', el hueco y el pago grande':'')+'. Lo demás ya puede trabajar para ti.'});
-  return '<div class="legs" style="margin-top:6px">'+rows.map(r=>'<div class="leg"><span class="dot" style="background:'+r[3]+'"></span><span><b>'+esc(r[0])+'</b><small>'+esc(r[1])+'</small></span><span class="a">'+fmt(r[2])+'</span></div>').join('')+'</div><div style="margin-top:6px">'+note+'</div>';
+  h+='<div class="lab" style="margin:18px 0 4px">Lo que queda: '+fmt(R)+'</div><div class="legs">'+rows.map(r=>'<div class="leg"><span class="dot" style="background:'+r[3]+'"></span><span><b>'+esc(r[0])+'</b><small>'+esc(r[1])+'</small></span><span class="a">'+fmt(r[2])+'</span></div>').join('')+'</div>';
+  const gap=Math.max(0,target-R);
+  h+='<div style="margin-top:8px">'+(gap>0?insHTML({t:'warn',h:'A tu reserva aún le faltan '+fmt(gap),p:'La meta es '+fmt(target)+(lump>0?' (hueco más pago grande)':' (colchón)')+'. Mientras no la completes, no abones a la deuda.'}):insHTML({t:'good',h:'Tu reserva quedaría completa',p:'Lo demás ya puede trabajar para ti.'}))+'</div>';
+  return h;
 }
+
 function cashSheet(){
   openSheet({title:'¿Qué hago con este dinero?',sub:'Pon cuánto te entró y te digo cómo repartirlo, empezando por proteger tu reserva.',
     fields:[{id:'amount',label:'Monto que te entró',type:'money',value:''}],after:'<div id="cashres" style="margin-top:18px"></div>',submit:'Ver qué hacer',
-    onSubmit:v=>{const a=num(v.amount);if(a<=0)return bad('Pon cuánto te entró.');$('#cashres').innerHTML=cashResult(a);return false;}});
+    onSubmit:v=>{const a=num(v.amount);if(a<=0)return bad('Pon cuánto te entró.');$('#cashres').innerHTML=adviseCash(a);return false;}});
 }
 
 /* ---------- datos de ejemplo y resumen ---------- */
@@ -1036,6 +1142,7 @@ function summary(c){
     'Gasto personal de '+monthName(V.month)+': '+fmt(c.spent)+' de '+fmt(c.pers),
     (()=>{const m=monthData(V.month);const cats=Object.entries(m.by).sort((a,b)=>b[1]-a[1]).map(x=>x[0]+' '+fmt(x[1])).join(', ');const rep=m.names.filter(x=>x.c>=2).sort((a,b)=>b.t-a.t).slice(0,5).map(x=>x.n+' ('+x.c+' veces, '+fmt(x.t)+')').join(', ');return 'Por categoría: '+(cats||'sin gastos')+'. Repetidos: '+(rep||'ninguno')+'. Depósitos de ahorro del mes: '+fmt(m.dep)+'. Pagos a deudas del mes: '+fmt(m.paid)+'.';})(),
     'DINERO GUARDADO: '+(S.accounts.length?S.accounts.map(a=>a.name+' '+fmt(a.balance)+(a.type==='bloqueada'?' (bloqueada, garantía)':'')+(a.type==='inversion'&&a.rate?' (rinde '+pct(a.rate)+' anual)':'')).join(', ')+'. Patrimonio neto '+fmt(c.net):'sin registrar'),'',
+    'CALENDARIO DEL MES: '+calText(),'',
     'Actúa como mi estratega financiero. Dime qué ajustarías en el reparto, qué recortar, qué compras debería evitar, cómo acelerar mis deudas y qué hacer con mis ahorros e inversiones.']);
   return L.join('\n');
 }
@@ -1057,7 +1164,7 @@ const A={
   'add-goal':()=>goalSheet(),'edit-goal':t=>goalSheet(find('goals',t.dataset.id)),'fund-goal':t=>fundSheet(find('goals',t.dataset.id)),
   mprev:()=>{V.month=shiftMonth(V.month,-1);render();},mnext:()=>{V.month=shiftMonth(V.month,1);render();},
   'add-acc':()=>accSheet(),'edit-acc':t=>accSheet(find('accounts',t.dataset.id)),dep:depSheet,wd:wdSheet,mv:mvSheet,payd:paydSheet,
-  buy:buySheet,cash:cashSheet,
+  buy:buySheet,cash:cashSheet,mark:t=>markSheet(t.dataset.id),
   'load-demo':loadDemo,
   'wipe-demo':()=>{S=DEF();V.sim=null;done();},
   'copy-summary':()=>copyText(summary(calc()),'Resumen copiado. Pégalo en el chat con Claude.'),
