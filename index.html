@@ -417,7 +417,7 @@ function calc(){
   const intM=active.reduce((a,d)=>a+d.balance*d.rate/1200,0);
   const plan=simulate(S.debts,extra,S.strategy);
   const base=simulate(S.debts,0,S.strategy);
-  const spent=sum(S.expenses.filter(x=>x.date.slice(0,7)===V.month));
+  const spent=sum(S.expenses.filter(x=>x.date.slice(0,7)===V.month&&!x.fixedId));
   const invested=sum(S.accounts.filter(a=>a.type==='inversion'),'balance');
   const stored=sum(S.accounts,'balance');
   const cushion=active.length?(E+Mfull):E*3;
@@ -513,7 +513,7 @@ function strat(c){
 
 /* ---------- revisión del mes ---------- */
 function monthData(k){
-  const ex=S.expenses.filter(x=>x.date.slice(0,7)===k);
+  const ex=S.expenses.filter(x=>x.date.slice(0,7)===k&&!x.fixedId);
   const by={},nm={};
   ex.forEach(x=>{by[x.cat]=(by[x.cat]||0)+x.amount;const n=x.name.trim().toLowerCase();if(!nm[n])nm[n]={n:x.name.trim(),c:0,t:0};nm[n].c++;nm[n].t+=x.amount;});
   return {ex,total:sum(ex),by,names:Object.values(nm),dep:sum(S.moves.filter(m=>m.kind==='dep'&&m.date.slice(0,7)===k),'amount'),paid:sum(S.payments.filter(q=>q.date.slice(0,7)===k),'amount')};
@@ -550,7 +550,7 @@ function review(c){
   return {verdict,items:items.slice(0,6)};
 }
 function buyResult(a,name){
-  const c=calc(),spentNow=sum(S.expenses.filter(x=>x.date.slice(0,7)===ym())),left=c.pers-spentNow,what=name?esc(name):'Esa compra';
+  const c=calc(),spentNow=sum(S.expenses.filter(x=>x.date.slice(0,7)===ym()&&!x.fixedId)),left=c.pers-spentNow,what=name?esc(name):'Esa compra';
   if(c.pers<=0) return insHTML({t:'info',h:'Primero completa tu plan',p:'Necesito tu ingreso, esenciales y deudas para saber cuánto puedes gastar.'});
   if(a<=left) return insHTML({t:'good',h:what+' cabe en tu presupuesto',p:'Te quedarían '+fmt(left-a)+' para el resto del mes.'});
   const over=a-Math.max(left,0);
@@ -764,12 +764,16 @@ function vGastos(c){
     meter:c.pers>0?Math.min(100,r*100):null,over:r>1});
   const rv=review(c);
   h+='<section><div class="sec"><h2 class="h">Revisión del mes</h2>'+(rv.verdict?'<span class="tag '+rv.verdict.t+'" style="margin-left:0">'+rv.verdict.l+'</span>':'')+'</div><div class="card tight">'+rv.items.map(insHTML).join('')+'</div><div class="stack-btns" style="margin-top:16px"><button class="btn line" data-act="buy">¿Puedo comprar algo?</button></div></section>';
-  const by={};list.forEach(x=>by[x.cat]=(by[x.cat]||0)+x.amount);
+  const fx=monthEvents(V.month).filter(e=>e.kind==='out'&&e.id.indexOf('e:')===0);
+  if(fx.length)h+='<section><div class="sec"><h2 class="h">Gastos fijos del mes</h2></div><div class="card tight"><div class="rows">'+fx.map(e=>{
+    const tot=e.paid||0,pc=e.amount>0?Math.min(100,tot/e.amount*100):0,over=tot>e.amount+0.005;
+    return '<button class="row" data-act="fixed-add" data-id="'+e.ref.id+'" style="flex-direction:column;align-items:stretch;gap:8px"><span style="display:flex;justify-content:space-between;gap:12px"><b>'+esc(e.name)+'</b><span class="a">'+fmt(tot)+' de '+fmt(e.amount)+'</span></span><span class="meter'+(over?' bad':'')+'"><i style="width:'+pc.toFixed(1)+'%"></i></span><small style="color:var(--ink2);font-size:13px">'+(over?'Te pasaste '+fmt(tot-e.amount):(tot>=e.amount-0.005&&tot>0)?'Completo':'Faltan '+fmt(e.amount-tot))+' · toca para anotar un pago</small></button>';}).join('')+'</div></div></section>';
+  const by={};list.filter(x=>!x.fixedId).forEach(x=>by[x.cat]=(by[x.cat]||0)+x.amount);
   const cats=Object.entries(by).sort((a,b)=>b[1]-a[1]);
   if(cats.length){const mx=cats[0][1];h+='<section><div class="sec"><h2 class="h">Por categoría</h2></div><div class="card">'+cats.map(([k,v])=>'<div class="cat"><span>'+esc(k)+'</span><div class="meter"><i style="width:'+(v/mx*100).toFixed(1)+'%"></i></div><b style="font-weight:600">'+fmt(v)+'</b></div>').join('')+'</div></section>';}
   h+='<section><div class="sec"><h2 class="h">Movimientos</h2></div><div class="card tight">';
   if(!list.length) h+='<div class="rows">'+empty('Aún no anotas gastos este mes. Toca + para añadir el primero.')+'</div>';
-  else{let last='';h+=list.map(x=>{let s='';if(x.date!==last){s='<div class="day">'+dayLabel(x.date)+'</div>';last=x.date;}return s+row('edit-exp',x.id,x.name,x.cat,fmt2(x.amount));}).join('');}
+  else{let last='';h+=list.map(x=>{let s='';if(x.date!==last){s='<div class="day">'+dayLabel(x.date)+'</div>';last=x.date;}return s+row('edit-exp',x.id,x.name,x.fixedId?'Gasto fijo · '+((S.essentials.find(y=>y.id===x.fixedId)||{}).name||''):x.cat,fmt2(x.amount));}).join('');}
   h+='</div></section><button class="fab" data-act="add-exp" aria-label="Añadir gasto"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>';
   return h;
 }
@@ -913,12 +917,20 @@ function paySheet(d){
       d.balance=Math.max(0,+(d.balance-a).toFixed(2));S.payments.push({id:uid(),debt:d.id,name:d.name,amount:a,date:ymd()});
       V.sim=null;done();toast(d.balance<=0.005?'Deuda saldada. Bien hecho.':'Pago registrado.');}});
 }
-function expSheet(it){
-  openSheet({title:it?'Editar gasto':'Nuevo gasto',
-    fields:[{id:'amount',label:'Monto',type:'money',value:it?it.amount:''},{id:'name',label:'En qué fue',type:'text',value:it?it.name:'',ph:'Almuerzo, gasolina...'},{id:'cat',label:'Categoría',type:'chips',options:CATS,value:it?it.cat:CATS[0]},{id:'date',label:'Fecha',type:'date',value:it?it.date:ymd()}],
+function expSheet(it,fixedId){
+  const none='Ninguno (gasto personal)';
+  const startFixed=it&&it.fixedId?it.fixedId:(fixedId||'');
+  const startName=startFixed?((S.essentials.find(x=>x.id===startFixed)||{}).name||none):none;
+  const fields=[{id:'amount',label:'Monto',type:'money',value:it?it.amount:''}];
+  if(S.essentials.length)fields.push({id:'fixed',label:'¿Es de un gasto fijo?',type:'chips',options:[none].concat(S.essentials.map(x=>x.name)),value:startName});
+  fields.push({id:'name',label:'En qué fue',type:'text',value:it?it.name:'',ph:'Almuerzo, gasolina...'},
+    {id:'cat',label:'Categoría (si es gasto personal)',type:'chips',options:CATS,value:it&&CATS.indexOf(it.cat)>=0?it.cat:CATS[0]},
+    {id:'date',label:'Fecha',type:'date',value:it?it.date:ymd()});
+  openSheet({title:it?'Editar gasto':'Nuevo gasto',fields,
     del:it?()=>{S.expenses=S.expenses.filter(x=>x.id!==it.id);closeSheet();done();}:null,
     onSubmit:v=>{const a=num(v.amount);if(a<=0)return bad('Pon un monto mayor a cero.');if(!v.date)return bad('Elige la fecha.');
-      const d={name:(v.name||'').trim()||v.cat,amount:a,cat:v.cat,date:v.date};
+      const f=v.fixed&&v.fixed!==none?S.essentials.find(x=>x.name===v.fixed):null;
+      const d={name:(v.name||'').trim()||(f?f.name:v.cat),amount:a,cat:f?'Gasto fijo':v.cat,date:v.date,fixedId:f?f.id:''};
       if(it)Object.assign(it,d);else S.expenses.push(Object.assign({id:uid()},d));
       V.month=v.date.slice(0,7);done();}});
 }
@@ -1005,7 +1017,7 @@ function flowLedger(k){
     const kind=r.kd||(e?e.kind:'out'),name=r.n||(e?e.name:'Pago'),date=r.d||(e&&e.day?ymd(dueDate(e.day,k)):k+'-01');
     L.push({date,name,amount:r.a,kind,src:'cal'});
   });
-  S.expenses.filter(x=>x.date.slice(0,7)===k).forEach(x=>L.push({date:x.date,name:x.name,amount:x.amount,kind:'out',src:'gasto'}));
+  S.expenses.filter(x=>x.date.slice(0,7)===k).forEach(x=>{const f=x.fixedId?S.essentials.find(y=>y.id===x.fixedId):null;L.push({date:x.date,name:f?(x.name&&x.name!==f.name?f.name+' · '+x.name:f.name):x.name,amount:x.amount,kind:'out',src:f?'cal':'gasto'});});
   L.sort((a,b)=>a.date.localeCompare(b.date));
   let run=0;L.forEach(l=>{run+=l.kind==='in'?l.amount:-l.amount;l.run=run;});
   return L;
@@ -1015,7 +1027,7 @@ function vFlujo(c){
   const inc=sum(L.filter(l=>l.kind==='in'),'amount'),paid=sum(L.filter(l=>l.kind==='out'&&l.src==='cal'),'amount'),vexp=sum(L.filter(l=>l.src==='gasto'),'amount');
   const net=inc-paid-vexp,open=S.open[k],hasOpen=open!==undefined&&open!==null;
   const ev=cur?monthEvents(k):[];
-  const pOut=sum(ev.filter(e=>e.kind==='out'&&!e.done),'amount'),pIn=sum(ev.filter(e=>e.kind==='in'&&!e.done),'amount');
+  const pOut=ev.filter(e=>e.kind==='out'&&!e.done).reduce((t,e)=>t+Math.max(0,e.amount-(e.paid||0)),0),pIn=sum(ev.filter(e=>e.kind==='in'&&!e.done),'amount');
   let h=demoBanner()+'<div class="mnav"><button data-act="mprev" aria-label="Mes anterior">‹</button><div class="nm">'+monthName(k)+'</div><button data-act="mnext" aria-label="Mes siguiente">›</button></div>';
   h+=heroCard({label:'Balance del mes',chip:hasOpen?'Empezaste con '+fmt(open):'',val:net,neg:net<0,
     sub:net<0?(inc===0?'Aún no cobras este mes: estás pagando con lo que guardaste del mes pasado.':'Por ahora has pagado más de lo que has cobrado este mes.'):'Lo cobrado menos lo pagado y gastado hasta hoy.',
@@ -1054,7 +1066,10 @@ function monthEvents(k){
   const pd=S.paid[k]||{},ev=[];
   const add=(kind,id,name,amount,day,extra)=>{const r=pd[id];ev.push(Object.assign({kind,id,name,amount,day:day||0,done:!!r,real:r||null},extra||{}));};
   S.incomes.forEach(x=>add('in','i:'+x.id,x.name,x.amount,x.day));
-  S.essentials.forEach(x=>add('out','e:'+x.id,x.name,x.amount,x.day));
+  S.essentials.forEach(x=>{
+    const part=sum(S.expenses.filter(e=>e.fixedId===x.id&&e.date.slice(0,7)===k)),r=pd['e:'+x.id],tot=part+(r?r.a:0);
+    ev.push({kind:'out',id:'e:'+x.id,name:x.name,amount:x.amount,day:x.day||0,done:!!r||(tot>=x.amount-0.005&&tot>0),real:r||(part>0?{a:part}:null),paid:tot,part,ref:x});
+  });
   if(k===ym())S.debts.filter(d=>d.balance>0.005||pd['d:'+d.id]).forEach(d=>{
     const kl=lumpIdx(d);
     if(kl===1&&d.lump>0)add('out','d:'+d.id,'Pago grande · '+d.name,d.lump,d.day,{debt:d.id,lump:true});
@@ -1064,16 +1079,17 @@ function monthEvents(k){
 }
 function evRow(e){
   const today=new Date().getDate();let st,cls='';
-  if(e.done){st='Hecho · '+fmt2(e.real.a);cls='pos';}
-  else if(!e.day){st='Varía';}
-  else{const d=e.day-today;st=d<0?'Pendiente desde el '+e.day:d===0?'Hoy':d===1?'Mañana':'Día '+e.day+' · en '+d+' días';if(d<0)cls='neg';}
+  const due=!e.day?'Varía':(()=>{const d=e.day-today;if(d<0)cls='neg';return d<0?'Pendiente desde el '+e.day:d===0?'Hoy':d===1?'Mañana':'Día '+e.day+' · en '+d+' días';})();
+  if(e.done){st='Hecho · '+fmt2(e.paid||e.real.a);cls='pos';}
+  else if(e.paid>0){st='Pagado '+fmt(e.paid)+' de '+fmt(e.amount)+(e.day?' · '+due:'');}
+  else st=due;
   return '<button class="row'+(e.done?' done':'')+'" data-act="mark" data-id="'+e.id+'"><span class="m"><b>'+esc(e.name)+'</b><small>'+(e.kind==='in'?'Ingreso':'Pago')+' · '+st+'</small></span><span class="a '+(e.kind==='in'?'pos':'')+'">'+(e.kind==='in'?'+':'')+fmt(e.amount)+'</span></button>';
 }
 function flowAlert(c){
   const now=new Date(),today=now.getDate(),n=dim(now.getFullYear(),now.getMonth());
   const ev=monthEvents(ym()).filter(e=>!e.done&&e.day>=today&&e.day>0);
   let bal=c.liquid,min=bal,minDay=0;
-  for(let d=today;d<=n;d++){ev.filter(e=>e.day===d).forEach(e=>{bal+=e.kind==='in'?e.amount:-e.amount;});if(bal<min){min=bal;minDay=d;}}
+  for(let d=today;d<=n;d++){ev.filter(e=>e.day===d).forEach(e=>{bal+=e.kind==='in'?e.amount:-Math.max(0,e.amount-(e.paid||0));});if(bal<min){min=bal;minDay=d;}}
   return min<0?{day:minDay,min}:null;
 }
 function nextIncomeInfo(){
@@ -1105,8 +1121,8 @@ function revertPaid(k,id){
 function markSheet(id){
   const k=ym(),ev=monthEvents(k).find(e=>e.id===id);if(!ev)return;
   const isIn=ev.kind==='in',rec=(S.paid[k]||{})[id],names=accNames(),none=isIn?'Sin sumar a una cuenta':'Sin descontar de una cuenta';
-  openSheet({title:isIn?'Ingreso recibido':'Marcar como pagado',sub:esc(ev.name)+(ev.day?' · día '+ev.day:'')+'. Esperado: '+fmt2(ev.amount)+'.',
-    fields:[{id:'amount',label:isIn?'Monto que entró':'Monto que pagaste',type:'money',value:rec?rec.a:ev.amount},
+  openSheet({title:isIn?'Ingreso recibido':'Marcar como pagado',sub:esc(ev.name)+(ev.day?' · día '+ev.day:'')+'. Esperado: '+fmt2(ev.amount)+'.'+(ev.part>0?' Ya pagaste '+fmt2(ev.part)+' en partes.':''),
+    fields:[{id:'amount',label:isIn?'Monto que entró':'Monto que pagaste',type:'money',value:rec?rec.a:Math.max(0,ev.amount-(ev.part||0))},
       {id:'acc',label:isIn?'Depositar en':'Pagar desde',type:'chips',options:names.concat([none]),value:rec?(rec.acc||none):((!isIn&&ev.day>0&&ev.day<new Date().getDate())?none:(names[0]||none))}],
     submit:rec?'Guardar cambios':(isIn?'Registrar ingreso':'Marcar pagado'),delLabel:'Deshacer',
     del:rec?()=>{revertPaid(k,id);closeSheet();done();toast('Deshecho.');}:null,
@@ -1130,7 +1146,7 @@ function adviseSheet(addX,name,amount){
 }
 function calText(){
   const ev=monthEvents(ym()).sort((a,b)=>(a.day||99)-(b.day||99));
-  return ev.length?ev.map(e=>e.name+' ('+(e.kind==='in'?'ingreso ':'pago ')+fmt(e.amount)+(e.day?', día '+e.day:', varía')+(e.done?', hecho':', pendiente')+')').join('; '):'sin fechas registradas';
+  return ev.length?ev.map(e=>e.name+' ('+(e.kind==='in'?'ingreso ':'pago ')+fmt(e.amount)+(e.day?', día '+e.day:', varía')+(e.done?', hecho':(e.paid>0?', pagado '+fmt(e.paid):', pendiente'))+')').join('; '):'sin fechas registradas';
 }
 
 /* ---------- ¿qué hago con dinero nuevo? ---------- */
@@ -1141,13 +1157,14 @@ function adviseCash(addX){
   const pick=key=>monthEvents(key).filter(e=>e.kind==='out'&&!e.done&&(key===k?(e.day===0||dueDate(e.day,key)<=end):(e.day>0&&e.day<endDay)));
   let items=pick(k);if(endKey===nk)items=items.concat(pick(nk));
   items.sort((a,b)=>(a.day||99)-(b.day||99));
-  const B=sum(items,'amount'),daysN=Math.max(1,Math.round((end-now)/864e5));
+  items.forEach(e=>{e.rem=Math.max(0,e.amount-(e.paid||0));});
+  const B=sum(items,'rem'),daysN=Math.max(1,Math.round((end-now)/864e5));
   const liq=c.liquid+addX,R=liq-B;
   const lks=c.active.map(lumpIdx).filter(x=>x>=1),months=lks.length?Math.min.apply(null,lks)-1:0;
   const lump=sum(c.active.filter(d=>lumpIdx(d)>=1),'lump'),hole=Math.max(0,-c.free)*months;
   const target=lump>0?lump+hole:c.cushion;
   const food=/comida|aliment|mercado|supermercado/i;
-  const rowsHTML=items.map(e=>'<div class="leg"><span class="dot" style="background:var(--c-ess)"></span><span><b>'+esc(e.name)+'</b><small>'+(e.day?'El día '+e.day:'Este mes')+(food.test(e.name)?' · unos '+fmt(e.amount/daysN)+' al día':'')+'</small></span><span class="a">'+fmt(e.amount)+'</span></div>').join('');
+  const rowsHTML=items.map(e=>'<div class="leg"><span class="dot" style="background:var(--c-ess)"></span><span><b>'+esc(e.name)+'</b><small>'+(e.day?'El día '+e.day:'Este mes')+(food.test(e.name)?' · unos '+fmt(e.rem/daysN)+' al día':'')+'</small></span><span class="a">'+fmt(e.rem)+'</span></div>').join('');
   let h='<div class="lab" style="margin:4px 0 4px">Primero, tus pagos hasta el '+label+'</div>'+
     (items.length?'<div class="legs">'+rowsHTML+'</div><div class="tot" style="border-top:0;padding:10px 0 0"><span class="muted">Separa en total</span><b>'+fmt(B)+'</b></div>':'<p class="small muted">No tienes pagos pendientes hasta esa fecha.</p>');
   if(R<0)return h+'<div style="margin-top:12px">'+insHTML({t:'bad',h:'No te alcanza: faltan '+fmt(-R),p:'Con '+fmt(liq)+' disponibles no cubres esos pagos. Prioriza arriendo, servicios y comida, y no toques nada para ahorro ni deuda hasta que entre más dinero.'})+'</div>';
@@ -1215,7 +1232,7 @@ const A={
   mprev:()=>{V.month=shiftMonth(V.month,-1);render();},mnext:()=>{V.month=shiftMonth(V.month,1);render();},
   'add-acc':()=>accSheet(),'edit-acc':t=>accSheet(find('accounts',t.dataset.id)),dep:depSheet,wd:wdSheet,mv:mvSheet,payd:paydSheet,
   buy:buySheet,cash:cashSheet,mark:t=>markSheet(t.dataset.id),
-  opening:openingSheet,'mark-past':markPastSheet,
+  'fixed-add':t=>expSheet(null,t.dataset.id),opening:openingSheet,'mark-past':markPastSheet,
   'load-demo':loadDemo,
   'wipe-demo':()=>{S=DEF();V.sim=null;done();},
   'copy-summary':()=>copyText(summary(calc()),'Resumen copiado. Pégalo en el chat con Claude.'),
