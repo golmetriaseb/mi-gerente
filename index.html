@@ -350,7 +350,7 @@ const PLANS={
 };
 const CATS=['Comida fuera','Transporte','Ocio','Compras','Salud','Hogar','Otros'];
 const DEF=()=>({name:'Sebas',theme:'auto',incomes:[],essentials:[],debts:[],payments:[],expenses:[],
-  goals:[{id:'emg',name:'Fondo de emergencia',saved:0,target:0,auto:true}],plan:'equilibrado',strategy:'avalancha',demo:false,accounts:[],moves:[],paid:{}});
+  goals:[{id:'emg',name:'Fondo de emergencia',saved:0,target:0,auto:true}],plan:'equilibrado',strategy:'avalancha',demo:false,accounts:[],moves:[],paid:{},open:{}});
 let S=DEF();
 try{const raw=localStorage.getItem(KEY);if(raw){S=Object.assign(DEF(),JSON.parse(raw));}}catch(e){}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
@@ -578,9 +578,10 @@ const IC={
   deudas:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/>',
   gastos:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
   ahorro:'<path d="M12 3l8 4v5c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V7z"/>',
+  flujo:'<path d="M4 17l5-5 4 4 7-8"/><path d="M15 8h5v5"/>',
   ajustes:'<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>'
 };
-const TABS=[['inicio','Inicio'],['dinero','Mi dinero'],['deudas','Deudas'],['gastos','Gastos'],['ahorro','Ahorro']];
+const TABS=[['inicio','Inicio'],['dinero','Mi dinero'],['deudas','Deudas'],['gastos','Gastos'],['flujo','Flujo'],['ahorro','Ahorro']];
 function navHTML(){
   return '<div class="logo brand"><svg viewBox="0 0 28 28" aria-hidden="true"><rect x="2" y="2" width="24" height="24" rx="7"/><path d="M8 19.5v-11l6 7 6-7v11"/></svg>Mi Gerente</div>'+
     TABS.map(([k,l])=>'<button class="ti'+(V.tab===k?' on':'')+'" data-tab="'+k+'"><svg viewBox="0 0 24 24" aria-hidden="true">'+IC[k]+'</svg>'+l+'</button>').join('')+
@@ -677,7 +678,7 @@ function vDinero(c){
   let h=demoBanner();
   if(c.I>0) h+=heroCard({label:'Te queda al mes',val:c.free,neg:c.free<0,sub:c.free<0?'Estás gastando más de lo que entra.':'Después de esenciales y mínimos de deuda. El plan lo reparte entre deuda, ahorro y gastos.'});
   else h+=head('Mi dinero','Lo que entra y lo que sale cada mes. Las cuotas de tus deudas no van aquí.');
-  h+='<section><div class="sec"><h2 class="h">Calendario de '+MESES[new Date().getMonth()]+'</h2></div><div class="card tight"><div class="rows">'+(monthEvents(ym()).length?monthEvents(ym()).sort((a,b)=>(a.day||99)-(b.day||99)).map(evRow).join(''):empty('Añade ingresos y gastos con su día y los verás aquí.'))+'</div></div><p class="small muted" style="margin-top:10px">Toca un pago o ingreso para marcarlo como hecho. Ponles su día al editarlos.</p></section>';
+  h+='<section><div class="sec"><h2 class="h">Calendario de '+MESES[new Date().getMonth()]+'</h2><button class="link" data-act="mark-past">Marcar lo que ya pasó</button></div><div class="card tight"><div class="rows">'+(monthEvents(ym()).length?monthEvents(ym()).sort((a,b)=>(a.day||99)-(b.day||99)).map(evRow).join(''):empty('Añade ingresos y gastos con su día y los verás aquí.'))+'</div></div><p class="small muted" style="margin-top:10px">Toca un pago o ingreso para marcarlo como hecho. Ponles su día al editarlos.</p></section>';
   h+='<section><div class="sec"><h2 class="h">Ingresos</h2><button class="link" data-act="add-inc">Añadir</button></div><div class="card tight"><div class="rows">'+(inc||empty('Añade tu sueldo y cualquier otro ingreso fijo, como asesorías o ventas.'))+'</div>'+
     (S.incomes.length?'<div class="tot"><span class="muted">Total al mes</span><b>'+fmt(c.I)+'</b></div>':'')+'</div></section>'+
     '<section><div class="sec"><h2 class="h">Gastos esenciales</h2><button class="link" data-act="add-ess">Añadir</button></div><div class="card tight"><div class="rows">'+(ess||empty('Lo que pagas cada mes sí o sí. Las cuotas de deudas van en Deudas.'))+'</div>'+
@@ -814,7 +815,7 @@ function vAjustes(){
 }
 
 /* ---------- render ---------- */
-const VIEWS={inicio:vInicio,dinero:vDinero,deudas:vDeudas,gastos:vGastos,ahorro:vAhorro,ajustes:vAjustes};
+const VIEWS={inicio:vInicio,dinero:vDinero,deudas:vDeudas,gastos:vGastos,flujo:vFlujo,ahorro:vAhorro,ajustes:vAjustes};
 function applyTheme(){
   const r=document.documentElement;
   if(S.theme==='auto') r.removeAttribute('data-theme'); else r.setAttribute('data-theme',S.theme);
@@ -996,6 +997,55 @@ function paydSheet(){
       V.sim=null;done();toast(d.balance<=0.005?'Deuda saldada. Bien hecho.':'Abono registrado.');}});
 }
 
+/* ---------- flujo del mes ---------- */
+function flowLedger(k){
+  const L=[],pd=S.paid[k]||{},evs=monthEvents(k);
+  Object.keys(pd).forEach(id=>{
+    const r=pd[id],e=evs.find(x=>x.id===id);
+    const kind=r.kd||(e?e.kind:'out'),name=r.n||(e?e.name:'Pago'),date=r.d||(e&&e.day?ymd(dueDate(e.day,k)):k+'-01');
+    L.push({date,name,amount:r.a,kind,src:'cal'});
+  });
+  S.expenses.filter(x=>x.date.slice(0,7)===k).forEach(x=>L.push({date:x.date,name:x.name,amount:x.amount,kind:'out',src:'gasto'}));
+  L.sort((a,b)=>a.date.localeCompare(b.date));
+  let run=0;L.forEach(l=>{run+=l.kind==='in'?l.amount:-l.amount;l.run=run;});
+  return L;
+}
+function vFlujo(c){
+  const k=V.month,cur=k===ym(),L=flowLedger(k);
+  const inc=sum(L.filter(l=>l.kind==='in'),'amount'),paid=sum(L.filter(l=>l.kind==='out'&&l.src==='cal'),'amount'),vexp=sum(L.filter(l=>l.src==='gasto'),'amount');
+  const net=inc-paid-vexp,open=S.open[k],hasOpen=open!==undefined&&open!==null;
+  const ev=cur?monthEvents(k):[];
+  const pOut=sum(ev.filter(e=>e.kind==='out'&&!e.done),'amount'),pIn=sum(ev.filter(e=>e.kind==='in'&&!e.done),'amount');
+  let h=demoBanner()+'<div class="mnav"><button data-act="mprev" aria-label="Mes anterior">‹</button><div class="nm">'+monthName(k)+'</div><button data-act="mnext" aria-label="Mes siguiente">›</button></div>';
+  h+=heroCard({label:'Balance del mes',chip:hasOpen?'Empezaste con '+fmt(open):'',val:net,neg:net<0,
+    sub:net<0?(inc===0?'Aún no cobras este mes: estás pagando con lo que guardaste del mes pasado.':'Por ahora has pagado más de lo que has cobrado este mes.'):'Lo cobrado menos lo pagado y gastado hasta hoy.',
+    three:true,foot:hv('Cobrado',fmt(inc))+hv('Pagos',fmt(paid))+hv('Gastos',fmt(vexp))});
+  const r=(l,v,cls)=>'<div class="row"><span class="m"><b>'+l+'</b></span><span class="a '+(cls||'')+'">'+v+'</span></div>';
+  let rows='';
+  if(hasOpen)rows+=r('Empezaste el mes con',fmt(open))+r('Te quedan ahora',fmt(open+net),open+net<0?'neg':'');
+  if(cur){rows+=r('Por pagar este mes',fmt(pOut))+r('Por cobrar este mes',fmt(pIn),'pos');
+    const base=hasOpen?open+net:c.liquid;
+    if(hasOpen||S.accounts.length)rows+=r('Terminarías el mes con',fmt(base+pIn-pOut),base+pIn-pOut<0?'neg':'');}
+  h+='<section><div class="card tight"><div class="rows">'+(rows||empty('Registra pagos, ingresos y gastos y aquí verás cómo va tu mes.'))+'</div></div><div class="stack-btns" style="margin-top:14px"><button class="link" data-act="opening">'+(hasOpen?'Cambiar':'Poner')+' con cuánto empecé el mes</button></div></section>';
+  h+='<section><div class="sec"><h2 class="h">Movimientos del mes</h2></div><div class="card tight"><div class="rows">'+(L.length?L.map(l=>'<div class="row"><span class="m"><b>'+esc(l.name)+'</b><small>'+dayLabel(l.date)+'</small></span><span class="a" style="text-align:right"><span class="'+(l.kind==='in'?'pos':'neg')+'">'+(l.kind==='in'?'+':'−')+fmt2(l.amount)+'</span><small style="display:block;color:var(--ink2);font-weight:500;font-size:12px">Balance '+fmt(l.run)+'</small></span></div>').join(''):empty('Aún no hay movimientos este mes. Marca tus pagos como hechos o anota tus gastos.'))+'</div></div></section>';
+  return h;
+}
+function openingSheet(){
+  const k=V.month,cur=S.open[k];
+  openSheet({title:'Con cuánto empecé el mes',sub:'Lo que tenías guardado el día 1 para pagar este mes. Con eso te muestro cuánto te queda ahora.',
+    fields:[{id:'amount',label:'Dinero al empezar '+monthName(k),type:'money',value:cur!==undefined&&cur!==null?cur:''}],
+    del:cur!==undefined&&cur!==null?()=>{delete S.open[k];closeSheet();done();}:null,delLabel:'Quitar',
+    onSubmit:v=>{if(!String(v.amount).trim())return bad('Pon el monto, aunque sea 0.');S.open[k]=Math.max(0,num(v.amount));done();}});
+}
+function markPastSheet(){
+  const k=ym(),today=new Date().getDate();
+  const list=monthEvents(k).filter(e=>!e.done&&e.kind==='out'&&!e.debt&&e.day>0&&e.day<today);
+  if(!list.length){toast('No hay pagos vencidos sin marcar.');return;}
+  openSheet({title:'Marcar como pagado lo que ya pasó',sub:'Se marcarán estos '+list.length+' pagos como hechos, sin tocar tus cuentas:<br><b>'+list.map(e=>esc(e.name)+' (día '+e.day+')').join(', ')+'</b>.',
+    fields:[],submit:'Marcar '+list.length+' como pagados',
+    onSubmit:()=>{S.paid[k]=S.paid[k]||{};list.forEach(e=>{S.paid[k][e.id]={a:e.amount,acc:'',pr:0,d:ymd(dueDate(e.day,k)),n:e.name,kd:'out'};});done();toast('Listo, marcados como pagados.');}});
+}
+
 /* ---------- calendario de pagos ---------- */
 const dim=(y,m)=>new Date(y,m+1,0).getDate();
 function parseDay(v){const t=String(v==null?'':v).trim();if(!t)return 0;const n=parseInt(t,10);return(n>=1&&n<=31)?n:false;}
@@ -1057,7 +1107,7 @@ function markSheet(id){
   const isIn=ev.kind==='in',rec=(S.paid[k]||{})[id],names=accNames(),none=isIn?'Sin sumar a una cuenta':'Sin descontar de una cuenta';
   openSheet({title:isIn?'Ingreso recibido':'Marcar como pagado',sub:esc(ev.name)+(ev.day?' · día '+ev.day:'')+'. Esperado: '+fmt2(ev.amount)+'.',
     fields:[{id:'amount',label:isIn?'Monto que entró':'Monto que pagaste',type:'money',value:rec?rec.a:ev.amount},
-      {id:'acc',label:isIn?'Depositar en':'Pagar desde',type:'chips',options:names.concat([none]),value:rec?(rec.acc||none):(names[0]||none)}],
+      {id:'acc',label:isIn?'Depositar en':'Pagar desde',type:'chips',options:names.concat([none]),value:rec?(rec.acc||none):((!isIn&&ev.day>0&&ev.day<new Date().getDate())?none:(names[0]||none))}],
     submit:rec?'Guardar cambios':(isIn?'Registrar ingreso':'Marcar pagado'),delLabel:'Deshacer',
     del:rec?()=>{revertPaid(k,id);closeSheet();done();toast('Deshecho.');}:null,
     onSubmit:v=>{
@@ -1070,7 +1120,7 @@ function markSheet(id){
         if(d&&!ev.lump){const it=d.balance*d.rate/1200;pr=Math.max(0,Math.min(d.balance,a-it));d.balance=Math.max(0,+(d.balance-pr).toFixed(2));}
         S.payments.push({id:uid(),debt:ev.debt,name:d?d.name:ev.name,amount:a,date:ymd(),ref:k+id});}
       if(ac){ac.balance=+(ac.balance+(isIn?a:-a)).toFixed(2);S.moves.push({id:uid(),date:ymd(),kind:isIn?'dep':'wd',acc:ac.name,amount:a,note:(isIn?'Ingreso: ':'Pago: ')+ev.name,ref:k+id});}
-      S.paid[k]=S.paid[k]||{};S.paid[k][id]={a,acc:ac?ac.name:'',pr};
+      S.paid[k]=S.paid[k]||{};S.paid[k][id]={a,acc:ac?ac.name:'',pr,d:(!isIn&&ev.day>0&&ev.day<new Date().getDate())?ymd(dueDate(ev.day,k)):ymd(),n:ev.name,kd:ev.kind};
       V.sim=null;done();
       if(isIn)setTimeout(()=>adviseSheet(0,ev.name,a),80);
     }});
@@ -1165,6 +1215,7 @@ const A={
   mprev:()=>{V.month=shiftMonth(V.month,-1);render();},mnext:()=>{V.month=shiftMonth(V.month,1);render();},
   'add-acc':()=>accSheet(),'edit-acc':t=>accSheet(find('accounts',t.dataset.id)),dep:depSheet,wd:wdSheet,mv:mvSheet,payd:paydSheet,
   buy:buySheet,cash:cashSheet,mark:t=>markSheet(t.dataset.id),
+  opening:openingSheet,'mark-past':markPastSheet,
   'load-demo':loadDemo,
   'wipe-demo':()=>{S=DEF();V.sim=null;done();},
   'copy-summary':()=>copyText(summary(calc()),'Resumen copiado. Pégalo en el chat con Claude.'),
