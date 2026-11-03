@@ -421,12 +421,13 @@ function priority(){
   const a=S.debts.filter(d=>d.balance>0.005);
   return a.sort(S.strategy==='avalancha'?(x,y)=>y.rate-x.rate||x.balance-y.balance:(x,y)=>x.balance-y.balance)[0];
 }
+const isDebtIns=i=>!!i.k||/deuda|interes|Tasa alta|pagarás|abonar/i.test(i.h);
 function insights(c){
   const L=[];
   if(!c.I){L.push({t:'info',h:'Falta tu ingreso',p:'Añade tu sueldo en Mi dinero y calculo el plan completo.'});return L;}
   if(c.free<0){
     const top=[...S.essentials].sort((a,b)=>b.amount-a.amount).slice(0,2).map(x=>x.name).join(' y ');
-    L.push({t:'bad',h:'Te faltan '+fmt(-c.free)+' al mes',p:'Tus esenciales y los pagos mínimos suman '+fmt(c.E+c.M)+' y entran '+fmt(c.I)+'. Hay que cerrar esa brecha'+(top?': revisa '+top+',':'')+' o suma ingresos. Mientras no se cierre, la deuda no baja.'});
+    L.push({t:'bad',h:'Te faltan '+fmt(-c.free)+' al mes',p:'Tus esenciales y los pagos mínimos suman '+fmt(c.E+c.M)+' y entran '+fmt(c.I)+'. Hay que cerrar esa brecha'+(top?': revisa '+top+',':'')+' o suma ingresos. Mientras no se cierre, cada mes pierdes dinero.'});
   }else if(c.active.length){
     const p=priority();
     L.push({t:'good',h:'Manda '+fmt(c.extra)+' extra a la deuda cada mes',p:'Va encima de los mínimos ('+fmt(c.M)+'). Todo el extra es para '+p.name+(S.strategy==='avalancha'?', porque cobra la tasa más alta ('+pct(p.rate)+').':', la más pequeña, para cerrarla pronto y liberar su cuota.')});
@@ -441,14 +442,14 @@ function insights(c){
     const hi=c.active.filter(d=>d.rate>=20);
     if(hi.length) L.push({t:'warn',h:'Tasa alta en '+hi.map(d=>d.name).join(' y '),p:'Pregunta en el banco si puedes refinanciar o pasar ese saldo a una tasa menor. Con menos interés terminas antes sin poner más dinero.'});
   }
-  if(c.I>0&&c.E/c.I>.55) L.push({t:'warn',h:'Tus esenciales ocupan el '+Math.round(c.E/c.I*100)+'% del ingreso',p:'La regla 50/30/20 sugiere cerca del 50%. Recortar '+fmt(c.E-c.I*.5)+' ahí acelera la deuda.'});
+  if(c.I>0&&c.E/c.I>.55) L.push({t:'warn',h:'Tus esenciales ocupan el '+Math.round(c.E/c.I*100)+'% del ingreso',p:'La regla 50/30/20 sugiere cerca del 50%. Recortar '+fmt(c.E-c.I*.5)+' ahí te da más margen.'});
   if(c.active.length&&c.plan.ok&&c.plan.interest>c.debtTotal*.5)L.push({t:'warn',h:'En total pagarás '+fmt(c.plan.interest)+' de intereses',p:'Son '+(c.plan.interest/c.debtTotal).toFixed(1)+' veces lo que debes hoy. Cada abono extra a capital, o una tasa menor, baja esa cifra.'});
   const emg=S.goals.find(g=>g.auto);
   const emgSaved=S.accounts.length?c.liquid:(emg?emg.saved:0);
   if(emg&&c.E>0&&emgSaved<c.E&&c.free>=0) L.push({t:'info',h:'Arma un colchón de '+fmt(c.E),p:'Un mes de esenciales evita que una emergencia te devuelva a las tarjetas. Hoy tienes '+fmt(emgSaved)+'.'});
   strat(c).filter(i=>i.k).forEach((i,ix)=>L.splice(1+ix,0,i));
   lumpInsights(c).forEach((i,ix)=>L.splice(ix,0,i));
-  return L.slice(0,5);
+  return L;
 }
 
 /* ---------- estrategia de ahorros ---------- */
@@ -628,16 +629,11 @@ function vInicio(c){
   }
   const today=new Date();
   let h=demoBanner()+'<div><div class="greet">Hola, '+esc(S.name)+'</div><div class="gdate">'+DIAS[today.getDay()]+' '+today.getDate()+' de '+MESES[today.getMonth()]+'</div></div>';
-  if(c.active.length){
-    const pc=c.initial>0?Math.min(100,c.paid/c.initial*100):0;
-    h+=heroCard({label:'Deuda total',chip:'Plan '+PLANS[S.plan].n,val:c.debtTotal,ring:pc,
-      sub:c.paid>0?'Pagaste '+fmt(c.paid)+' de '+fmt(c.initial)+'.':'Aún no registras pagos.',
-      spark:c.plan.ok?sparkSVG(c.plan.series):'',
-      foot:c.plan.ok?hv('Libre de deudas',afterMonths(c.plan.months-1))+hv('A este ritmo',span(c.plan.months),true):'<div style="grid-column:1/-1">'+hv('Libre de deudas','Sin fecha',true)+'<p class="hsub">Con los pagos actuales la deuda no llega a cero.</p></div>'});
-  }else{
-    h+=heroCard({label:'Deuda total',val:0,sub:c.initial>0?'Saldaste '+fmt(c.initial)+'. Ahora todo tu margen va a ahorro.':'No registras deudas. Si tienes alguna, añádela en Deudas.'});
-  }
-  h+='<section><div class="card"><div class="trio"><div><div class="lab">Ingreso</div><div class="v">'+fmt(c.I)+'</div></div><div><div class="lab">Compromisos</div><div class="v">'+fmt(c.E+c.M)+'</div></div><div><div class="lab">Te queda</div><div class="v'+(c.free<0?' neg':'')+'">'+fmt(c.free)+'</div></div></div></div></section>';
+  h+=heroCard({label:'Te queda este mes',chip:'Plan '+PLANS[S.plan].n,val:c.free,neg:c.free<0,
+    sub:!c.I?'Añade tu ingreso en Mi dinero para calcular tu mes.':(c.free<0?'Estás gastando más de lo que entra.':'Después de tus gastos fijos y cuotas.'),
+    three:true,foot:hv('Ingreso',fmt(c.I))+hv('Gastos',fmt(c.E+c.M))+hv('Ahorro',fmt(c.savings))});
+  const near=c.active.find(d=>{const k=lumpIdx(d);return k>=1&&k<=4&&d.lump>0;});
+  if(near) h+='<section><div class="card tight">'+lumpInsights(c).slice(0,1).map(insHTML).join('')+'</div><div style="margin-top:10px;text-align:right"><button class="link" data-tab="deudas">Ver en Deudas</button></div></section>';
   const parts=[
     ['Esenciales','Arriendo, comida, servicios y lo fijo del mes.',c.E,'var(--c-ess)'],
     ['Mínimos de deuda','La cuota que no se negocia.',c.M,'var(--c-min)'],
@@ -648,8 +644,8 @@ function vInicio(c){
     Object.keys(PLANS).map(k=>'<button class="'+(S.plan===k?'on':'')+'" data-act="plan" data-v="'+k+'">'+PLANS[k].n+'</button>').join('')+'</div>'+
     '<p class="small muted" style="margin:10px 0 20px">'+PLANS[S.plan].d+'</p>'+
     '<div class="alloc">'+donutSVG(parts,c.I)+'<div class="legs">'+parts.map(p=>'<div class="leg"><span class="dot" style="background:'+p[3]+'"></span><span><b>'+p[0]+'</b><small>'+p[1]+'</small></span><span class="a">'+fmt(p[2])+'</span></div>').join('')+'</div></div></div></section>';
-  const ins=insights(c);
-  if(ins.length) h+='<section><div class="sec"><h2 class="h">Lo que veo</h2></div><div class="card tight">'+ins.map(i=>'<div class="ins '+i.t+'"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true">'+ICN[i.t]+'</svg></span><div><b>'+esc(i.h)+'</b><p>'+esc(i.p)+'</p></div></div>').join('')+'</div></section>';
+  const ins=insights(c).filter(i=>!isDebtIns(i)).slice(0,5);
+  if(ins.length) h+='<section><div class="sec"><h2 class="h">Lo que veo</h2></div><div class="card tight">'+ins.map(insHTML).join('')+'</div></section>';
   if(c.pers>0||c.spent>0){
     const r=c.pers>0?c.spent/c.pers:2,cls=r>1?'bad':r>.8?'warn':'';
     h+='<section><div class="sec"><h2 class="h">Gasto personal</h2><button class="link" data-tab="gastos">Ver gastos</button></div><div class="card">'+
@@ -715,7 +711,10 @@ function vDeudas(c){
   if(c.active.length){
     const pc=c.initial>0?Math.min(100,c.paid/c.initial*100):0;
     h+=heroCard({label:'Debes hoy',chip:S.strategy==='avalancha'?'Avalancha':'Bola de nieve',val:c.debtTotal,ring:pc,sub:'Intereses de '+fmt(c.intM)+' al mes.',
-      foot:hv('Tasa media',pct(avg),true)+hv('Cuotas mínimas',fmt(c.M),true)});
+      spark:c.plan.ok?sparkSVG(c.plan.series):'',three:true,
+      foot:hv('Libre de deudas',c.plan.ok?afterMonths(c.plan.months-1):'Sin fecha')+hv('Cuota',fmt(c.Mfull))+hv('Tasa media',pct(avg))});
+    const dins=insights(c).filter(isDebtIns).slice(0,5);
+    if(dins.length) h+='<section><div class="sec"><h2 class="h">Lo que veo</h2></div><div class="card tight">'+dins.map(insHTML).join('')+'</div></section>';
     if(V.sim===null) V.sim=c.extra;
     const mx=Math.max(300,Math.ceil(Math.max(c.I,c.extra*2)/50)*50);
     h+='<section><div class="sec"><h2 class="h">Tu plan de pago</h2></div><div class="card">'+
