@@ -699,10 +699,11 @@ function chartSVG(plan,base){
 function planBlock(extra){
   const plan=simulate(S.debts,extra,S.strategy), base=simulate(S.debts,0,S.strategy);
   let note='';
-  if(!plan.ok) note='Con este extra la deuda no llega a cero. Sube el pago hasta que lo haga.';
+  const noCuota=S.debts.some(d=>d.balance>0.005&&!(+d.min>0)&&lumpIdx(d)<1);
+  if(!plan.ok) note=noCuota?'Una de tus deudas no tiene cuota registrada. Ponla en Editar para calcular el plan.':'Con este extra la deuda no llega a cero. Sube el pago hasta que lo haga.';
   else if(base.ok&&base.months>plan.months) note='Frente a pagar solo los mínimos, ahorras <b>'+fmt(base.interest-plan.interest)+'</b> en intereses y terminas <b>'+span(base.months-plan.months)+'</b> antes.';
   else if(!base.ok) note='Pagando solo los mínimos <b>la deuda nunca termina</b>: no cubren los intereses.';
-  return '<div class="res"><div><div class="lab">Libre de deudas</div><div class="v cap">'+(plan.ok?afterMonths(plan.months-1):'Sin fecha')+'</div></div><div><div class="lab">Intereses totales</div><div class="v">'+fmt(plan.interest)+'</div></div></div>'+
+  return '<div class="res"><div><div class="lab">Libre de deudas</div><div class="v cap">'+(plan.ok?afterMonths(plan.months-1):'Sin fecha')+'</div></div><div><div class="lab">Intereses totales</div><div class="v">'+(plan.ok?fmt(plan.interest):'—')+'</div></div></div>'+
     (note?'<p class="note">'+note+'</p>':'')+
     '<div class="keys"><span><i></i>Tu plan</span><span><i class="d"></i>Solo mínimos</span></div>'+chartSVG(plan,base)+
     (plan.order.length?'<div class="order" style="margin-top:22px"><div class="lab" style="margin-bottom:6px">Orden en que se van cerrando</div><div class="rows">'+plan.order.map(o=>'<div class="row"><span class="m"><b>'+esc(o.name)+'</b></span><span class="a" style="font-weight:500;text-transform:capitalize">'+afterMonths(o.month-1)+'</span></div>').join('')+'</div></div>':'');
