@@ -268,6 +268,9 @@ svg.chart text.em{fill:var(--ink);font-weight:600;paint-order:stroke;stroke:var(
 .chk .a{font-weight:600;white-space:nowrap}
 .chk.done .m,.chk.done .a{opacity:.55}
 .back{display:inline-block;margin:0 0 14px}
+.dual{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.dual .btn{width:100%;padding:14px 10px}
+.btn.line.acc{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
 .row.done{opacity:.55}
 .tag.good{color:var(--good);border-color:color-mix(in srgb,var(--good) 50%,transparent)}
 .tag.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
@@ -1116,7 +1119,7 @@ function vMes(c){
     sub:hasOpen?(left<0?'Ya usaste más de lo que tenías. Cuida lo que queda del mes.':'Lo que guardé, más lo que cobro, menos lo que pago.'):'Dime con cuánto empezaste el mes para que este número sea real.',
     three:true,foot:hv('Cobrado',fmt(inc))+hv('Pagos fijos',fmt(paid))+hv('Gastos',fmt(vexp))});
   h+='<div class="stack-btns" style="margin-top:12px"><button class="link" data-act="opening">'+(hasOpen?'Cambiar':'Poner')+' con cuánto empecé el mes</button></div>';
-  h+='<div class="stack-btns" style="margin-top:10px"><button class="btn primary" data-act="add-exp">+ Anotar un gasto</button></div>';
+  h+='<div class="dual"><button class="btn primary" data-act="add-exp">+ Anotar gasto</button><button class="btn line acc" data-act="qin-new">+ Anotar ingreso</button></div>';
   const ev=monthEvents(k);
   const fixed=ev.filter(e=>e.kind==='out').sort((a,b)=>(a.done-b.done)||((a.day||99)-(b.day||99)));
   h+='<section><div class="sec"><h2 class="h">Gastos fijos</h2><button class="link" data-tab="dinero">Editar</button></div><div class="card tight">'+(fixed.length?fixed.map(chkRow).join(''):empty('Añade tus gastos fijos en Más, Mi dinero.'))+'</div></section>';
@@ -1154,8 +1157,8 @@ function quickIncome(id){
       if(!rec)setTimeout(()=>adviseSheet(0,ev.name,a),80);}});
 }
 function newIncomeSheet(){
-  openSheet({title:'Otro ingreso',sub:'Algo que te entró y no está en tu lista.',
-    fields:[{id:'name',label:'De qué fue',type:'text',value:'',ph:'Asesoría extra, venta...'},{id:'amount',label:'Monto',type:'money',value:''}],submit:'Anotar',
+  openSheet({title:'Anotar un ingreso',sub:'Cualquier dinero que te entró, esté o no en tu lista.',
+    fields:[{id:'name',label:'De qué fue',type:'text',value:'',ph:'Asesoría extra, venta...',suggest:S.incomes.map(x=>x.name).filter((n,i,a)=>a.indexOf(n)===i).slice(0,4)},{id:'amount',label:'Monto',type:'money',value:''}],submit:'Anotar',
     onSubmit:v=>{const a=num(v.amount);if(!v.name.trim()||a<=0)return bad('Pon de qué fue y el monto.');
       const k=ym();S.paid[k]=S.paid[k]||{};S.paid[k]['x:'+uid()]={a,acc:'',pr:0,d:ymd(),n:v.name.trim(),kd:'in'};done();setTimeout(()=>adviseSheet(0,v.name.trim(),a),80);}});
 }
