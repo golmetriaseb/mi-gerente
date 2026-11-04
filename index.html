@@ -878,13 +878,13 @@ function openSheet(cfg){
     '<div class="actions">'+(cfg.del?'<button type="button" class="link danger" data-act="sheet-del">'+(cfg.delLabel||'Eliminar')+'</button>':'<button type="button" class="link mute" data-act="close">'+(cfg.cancel||'Cancelar')+'</button>')+(cfg.noSubmit?'':'<button type="submit" class="btn primary">'+(cfg.submit||'Guardar')+'</button>')+'</div></form>';
   el.classList.add('open');document.documentElement.classList.add('locked');
   $('#sf').addEventListener('submit',e=>{
-    e.preventDefault();
+    e.preventDefault();cfg._sub=true;
     const v={};(cfg.fields||[]).forEach(f=>{const i=$('#f-'+f.id);v[f.id]=i?i.value:'';});
     if(cfg.onSubmit(v)!==false) closeSheet();
   });
   setTimeout(()=>{const i=$('#sf input:not([type=hidden]),#sf textarea');if(i&&!cfg.noFocus)i.focus();if(cfg.select&&i){i.select();}},60);
 }
-function closeSheet(){document.documentElement.classList.remove('locked');$('#sheet').classList.remove('open');$('#sheet').innerHTML='';cur=null;}
+function closeSheet(){const c0=cur;document.documentElement.classList.remove('locked');$('#sheet').classList.remove('open');$('#sheet').innerHTML='';cur=null;if(c0&&c0.onClose&&!c0._sub)setTimeout(c0.onClose,60);}
 let tt;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),2400);}
 const bad=m=>{toast(m);return false;};
 const done=()=>{save();render();};
@@ -947,7 +947,7 @@ function accField(isIn,cur){
   const names=accNames();if(!names.length)return null;
   const none=isIn?NONE_IN:NONE_OUT;
   let val;if(cur===false)val=none;else if(cur&&names.indexOf(cur)>=0)val=cur;else val=(S.lastAcc&&names.indexOf(S.lastAcc)>=0)?S.lastAcc:names[0];
-  return {id:'acc',label:isIn?'¿A dónde entró?':'¿Con qué lo pagaste?',type:'chips',options:names.concat([none]),value:val,hint:'Así tu saldo se mantiene al día. '+accHint()};
+  return {id:'acc',label:isIn?'¿A dónde entró?':'¿Con qué lo pagaste?',type:'chips',options:names.concat([none]),value:val,hint:accHint()};
 }
 function accPick(v){const n=v.acc;if(!n||n===NONE_OUT||n===NONE_IN)return null;return accBy(n)||null;}
 function expTake(x){ // devuelve a la cuenta lo que se había descontado
@@ -957,6 +957,21 @@ function expTake(x){ // devuelve a la cuenta lo que se había descontado
 function expPut(x,ac){ // descuenta de la cuenta
   x.acc=ac?ac.name:'';
   if(ac){ac.balance=Math.max(0,+(ac.balance-x.amount).toFixed(2));S.lastAcc=ac.name;S.moves.push({id:uid(),date:x.date,kind:'wd',acc:ac.name,amount:x.amount,note:'Gasto: '+x.name,ref:'x'+x.id});}
+}
+function fromSheet(x){ // segundo paso: de dónde salió el gasto
+  const af=accField(false,'');if(!af)return;
+  openSheet({title:'¿De dónde salió?',sub:'<b>'+fmt2(x.amount)+'</b> · '+esc(x.name),fields:[af],submit:'Listo',cancel:'Omitir',
+    onSubmit:v=>{const ac=accPick(v);if(ac&&x.amount>ac.balance+0.005)return bad('No alcanza: '+ac.name+' tiene '+fmt2(ac.balance)+'. Elige otra.');
+      if(!S.expenses.some(y=>y.id===x.id))return;expTake(x);expPut(x,ac);done();}});
+}
+function toSheet(k,pid,name,a,after){ // segundo paso: a dónde entró el ingreso
+  const af=accField(true,'');
+  const fin=()=>{if(after)setTimeout(()=>adviseSheet(0,name,a),80);};
+  if(!af){fin();return;}
+  openSheet({title:'¿A dónde entró?',sub:'<b>'+fmt2(a)+'</b> · '+esc(name),fields:[af],submit:'Listo',cancel:'Omitir',onClose:fin,
+    onSubmit:v=>{const ac=accPick(v),r=(S.paid[k]||{})[pid];
+      if(ac&&r&&!r.acc){r.acc=ac.name;ac.balance=+(ac.balance+a).toFixed(2);S.lastAcc=ac.name;S.moves.push({id:uid(),date:ymd(),kind:'dep',acc:ac.name,amount:a,note:'Ingreso: '+name,ref:k+pid});}
+      done();fin();}});
 }
 function expDrop(x){expTake(x);S.expenses=S.expenses.filter(y=>y.id!==x.id);}
 function expSheet(it,fixedId){
@@ -968,18 +983,17 @@ function expSheet(it,fixedId){
   fields.push({id:'name',label:'En qué fue',type:'text',value:it?it.name:'',ph:'Almuerzo, gasolina...'},
     {id:'cat',label:'Categoría (si es gasto personal)',type:'chips',options:CATS,value:it&&CATS.indexOf(it.cat)>=0?it.cat:CATS[0]},
     {id:'date',label:'Fecha',type:'date',value:it?it.date:ymd()});
-  const af=accField(false,it?(it.acc||false):'');if(af)fields.splice(1,0,af);
   openSheet({title:it?'Editar gasto':'Nuevo gasto',fields,
     del:it?()=>{expDrop(it);closeSheet();done();}:null,
     onSubmit:v=>{const a=num(v.amount);if(a<=0)return bad('Pon un monto mayor a cero.');if(!v.date)return bad('Elige la fecha.');
       const f=v.fixed&&v.fixed!==none?S.essentials.find(x=>x.name===v.fixed):null;
       const d={name:(v.name||'').trim()||(f?f.name:v.cat),amount:a,cat:f?'Gasto fijo':v.cat,date:v.date,fixedId:f?f.id:''};
-      const ac=accPick(v);
-      if(ac){const av=ac.balance+(it&&it.acc===ac.name?it.amount:0);if(a>av+0.005)return bad('No alcanza: '+ac.name+' tiene '+fmt2(av)+'. Cambia la cuenta.');}
       let tgt=it;
-      if(it){expTake(it);Object.assign(it,d);}else{tgt=Object.assign({id:uid()},d);S.expenses.push(tgt);}
-      expPut(tgt,ac);
-      V.month=v.date.slice(0,7);done();}});
+      if(it){const ac=it.acc?accBy(it.acc):null;if(ac&&a>ac.balance+it.amount+0.005)return bad('No alcanza: '+ac.name+' tiene '+fmt2(ac.balance+it.amount)+'.');
+        expTake(it);Object.assign(it,d);expPut(it,ac);}
+      else{tgt=Object.assign({id:uid()},d);S.expenses.push(tgt);}
+      V.month=v.date.slice(0,7);done();
+      if(!it)setTimeout(()=>fromSheet(tgt),80);}});
 }
 function goalSheet(it){
   const auto=it&&it.auto;
@@ -1168,31 +1182,29 @@ function quickPay(id){
   const linked=S.expenses.filter(e=>e.fixedId===id&&e.date.slice(0,7)===k);
   const hasRec=!!(S.paid[k]||{})['e:'+id];
   openSheet({title:ev.name,sub:ev.paid>0?'Llevas '+fmt2(ev.paid)+' de '+fmt2(ev.amount)+'.':'Gasto fijo de '+fmt2(ev.amount)+'.',
-    fields:[{id:'amount',label:'¿Cuánto pagaste?',type:'money',value:rem>0?rem:ev.amount}].concat(accField(false,'')?[accField(false,'')]:[]),submit:'Pagado',delLabel:'Deshacer el último pago',
+    fields:[{id:'amount',label:'¿Cuánto pagaste?',type:'money',value:rem>0?rem:ev.amount}],submit:'Pagado',delLabel:'Deshacer el último pago',
     del:(linked.length||hasRec)?()=>{if(linked.length){const last=linked[linked.length-1];expDrop(last);}else revertPaid(k,'e:'+id);closeSheet();done();toast('Deshecho.');}:null,
     onSubmit:v=>{const a=num(v.amount);if(a<=0)return bad('Pon cuánto pagaste.');
-      const ac=accPick(v);if(ac&&a>ac.balance+0.005)return bad('No alcanza: '+ac.name+' tiene '+fmt2(ac.balance)+'. Cambia la cuenta.');
-      const x={id:uid(),name:ev.name,amount:a,cat:'Gasto fijo',date:ymd(),fixedId:id};S.expenses.push(x);expPut(x,ac);done();toast('Anotado.');}});
+      const x={id:uid(),name:ev.name,amount:a,cat:'Gasto fijo',date:ymd(),fixedId:id};S.expenses.push(x);done();toast('Anotado.');setTimeout(()=>fromSheet(x),80);}});
 }
 function quickIncome(id){
   const k=ym(),ev=monthEvents(k).find(e=>e.id==='i:'+id);if(!ev)return;
   const rec=(S.paid[k]||{})['i:'+id];
   openSheet({title:ev.name,sub:rec?'Ya lo anotaste: '+fmt2(rec.a)+'.':'Ingreso esperado: '+fmt2(ev.amount)+'.',
-    fields:[{id:'amount',label:'¿Cuánto te entró?',type:'money',value:rec?rec.a:ev.amount}].concat(accField(true,rec?(rec.acc||false):'')?[accField(true,rec?(rec.acc||false):'')]:[]),submit:rec?'Guardar cambio':'Ya me entró',delLabel:'Deshacer',
+    fields:[{id:'amount',label:'¿Cuánto te entró?',type:'money',value:rec?rec.a:ev.amount}],submit:rec?'Guardar cambio':'Ya me entró',delLabel:'Deshacer',
     del:rec?()=>{revertPaid(k,'i:'+id);closeSheet();done();toast('Deshecho.');}:null,
     onSubmit:v=>{const a=num(v.amount);if(a<=0)return bad('Pon cuánto te entró.');
-      const ac=accPick(v);if(rec)revertPaid(k,'i:'+id);S.paid[k]=S.paid[k]||{};S.paid[k]['i:'+id]={a,acc:ac?ac.name:'',pr:0,d:ymd(),n:ev.name,kd:'in'};
-      if(ac){ac.balance=+(ac.balance+a).toFixed(2);S.lastAcc=ac.name;S.moves.push({id:uid(),date:ymd(),kind:'dep',acc:ac.name,amount:a,note:'Ingreso: '+ev.name,ref:k+'i:'+id});}
+      const ac=rec&&rec.acc?accBy(rec.acc):null;if(rec)revertPaid(k,'i:'+id);S.paid[k]=S.paid[k]||{};S.paid[k]['i:'+id]={a,acc:ac?ac.name:'',pr:0,d:ymd(),n:ev.name,kd:'in'};
+      if(ac){ac.balance=+(ac.balance+a).toFixed(2);S.moves.push({id:uid(),date:ymd(),kind:'dep',acc:ac.name,amount:a,note:'Ingreso: '+ev.name,ref:k+'i:'+id});}
       done();
-      if(!rec)setTimeout(()=>adviseSheet(0,ev.name,a),80);}});
+      if(!rec)setTimeout(()=>toSheet(k,'i:'+id,ev.name,a,true),80);}});
 }
 function newIncomeSheet(){
   openSheet({title:'Anotar un ingreso',sub:'Cualquier dinero que te entró, esté o no en tu lista.',
-    fields:[{id:'name',label:'De qué fue',type:'text',value:'',ph:'Asesoría extra, venta...',suggest:S.incomes.map(x=>x.name).filter((n,i,a)=>a.indexOf(n)===i).slice(0,4)},{id:'amount',label:'Monto',type:'money',value:''}].concat(accField(true,'')?[accField(true,'')]:[]),submit:'Anotar',
+    fields:[{id:'name',label:'De qué fue',type:'text',value:'',ph:'Asesoría extra, venta...',suggest:S.incomes.map(x=>x.name).filter((n,i,a)=>a.indexOf(n)===i).slice(0,4)},{id:'amount',label:'Monto',type:'money',value:''}],submit:'Anotar',
     onSubmit:v=>{const a=num(v.amount);if(!v.name.trim()||a<=0)return bad('Pon de qué fue y el monto.');
-      const k=ym(),ac=accPick(v),xid='x:'+uid();S.paid[k]=S.paid[k]||{};S.paid[k][xid]={a,acc:ac?ac.name:'',pr:0,d:ymd(),n:v.name.trim(),kd:'in'};
-      if(ac){ac.balance=+(ac.balance+a).toFixed(2);S.lastAcc=ac.name;S.moves.push({id:uid(),date:ymd(),kind:'dep',acc:ac.name,amount:a,note:'Ingreso: '+v.name.trim(),ref:k+xid});}
-      done();setTimeout(()=>adviseSheet(0,v.name.trim(),a),80);}});
+      const k=ym(),xid='x:'+uid(),nm=v.name.trim();S.paid[k]=S.paid[k]||{};S.paid[k][xid]={a,acc:'',pr:0,d:ymd(),n:nm,kd:'in'};
+      done();setTimeout(()=>toSheet(k,xid,nm,a,true),80);}});
 }
 
 /* ---------- calendario de pagos ---------- */
