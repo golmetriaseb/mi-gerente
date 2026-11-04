@@ -1038,7 +1038,7 @@ function flowLedger(k){
   Object.keys(pd).forEach(id=>{
     const r=pd[id],e=evs.find(x=>x.id===id);
     const kind=r.kd||(e?e.kind:'out'),name=r.n||(e?e.name:'Pago'),date=r.d||(e&&e.day?ymd(dueDate(e.day,k)):k+'-01');
-    L.push({date,name,amount:r.a,kind,src:'cal'});
+    L.push({date,name,amount:r.a,kind,src:'cal',xid:id.indexOf('x:')===0?id:'',xk:k});
   });
   S.expenses.filter(x=>x.date.slice(0,7)===k).forEach(x=>{const f=x.fixedId?S.essentials.find(y=>y.id===x.fixedId):null;L.push({date:x.date,name:f?(x.name&&x.name!==f.name?f.name+' · '+x.name:f.name):x.name,amount:x.amount,kind:'out',src:f?'cal':'gasto',eid:x.id});});
   L.sort((a,b)=>a.date.localeCompare(b.date));
@@ -1066,7 +1066,7 @@ function vFlujo(c){
   const by={};S.expenses.filter(x=>x.date.slice(0,7)===k&&!x.fixedId).forEach(x=>by[x.cat]=(by[x.cat]||0)+x.amount);
   const cats=Object.entries(by).sort((a,b)=>b[1]-a[1]);
   if(cats.length){const mx=cats[0][1];h+='<section><div class="sec"><h2 class="h">En qué gastaste</h2></div><div class="card">'+cats.map(([n,v])=>'<div class="cat"><span>'+esc(n)+'</span><div class="meter"><i style="width:'+(v/mx*100).toFixed(1)+'%"></i></div><b style="font-weight:600">'+fmt(v)+'</b></div>').join('')+'</div></section>';}
-  h+='<section><div class="sec"><h2 class="h">Todo lo que entró y salió</h2></div><div class="card tight"><div class="rows">'+(L.length?L.map(l=>'<'+(l.eid?'button data-act="edit-exp" data-id="'+l.eid+'"':'div')+' class="row"><span class="m"><b>'+esc(l.name)+'</b><small>'+dayLabel(l.date)+'</small></span><span class="a" style="text-align:right"><span class="'+(l.kind==='in'?'pos':'neg')+'">'+(l.kind==='in'?'+':'−')+fmt2(l.amount)+'</span><small style="display:block;color:var(--ink2);font-weight:500;font-size:12px">Balance '+fmt(l.run)+'</small></span></'+(l.eid?'button':'div')+'>').join(''):empty('Aún no hay movimientos este mes. Marca tus pagos como hechos o anota tus gastos.'))+'</div></div></section>';
+  h+='<section><div class="sec"><h2 class="h">Todo lo que entró y salió</h2></div><div class="card tight"><div class="rows">'+(L.length?L.map(l=>'<'+(l.eid?'button data-act="edit-exp" data-id="'+l.eid+'"':(l.xid?'button data-act="xin-edit" data-k="'+l.xk+'" data-id="'+l.xid+'"':'div'))+' class="row"><span class="m"><b>'+esc(l.name)+'</b><small>'+dayLabel(l.date)+'</small></span><span class="a" style="text-align:right"><span class="'+(l.kind==='in'?'pos':'neg')+'">'+(l.kind==='in'?'+':'−')+fmt2(l.amount)+'</span><small style="display:block;color:var(--ink2);font-weight:500;font-size:12px">Balance '+fmt(l.run)+'</small></span></'+((l.eid||l.xid)?'button':'div')+'>').join(''):empty('Aún no hay movimientos este mes. Marca tus pagos como hechos o anota tus gastos.'))+'</div></div></section>';
   return h;
 }
 function openingSheet(){
@@ -1131,7 +1131,11 @@ function vMes(c){
   const fixed=ev.filter(e=>e.kind==='out').sort((a,b)=>(a.done-b.done)||((a.day||99)-(b.day||99)));
   h+='<section><div class="sec"><h2 class="h">Gastos fijos</h2><button class="link" data-tab="dinero">Editar</button></div><div class="card tight">'+(fixed.length?fixed.map(chkRow).join(''):empty('Añade tus gastos fijos en Más, Mi dinero.'))+'</div>'+(fixed.some(e=>!e.done&&!e.debt&&e.day>0&&e.day<today.getDate())?'<div class="stack-btns" style="margin-top:10px"><button class="link" data-act="mark-past">Marcar como pagado lo que ya pasó</button></div>':'')+'</section>';
   const ins=ev.filter(e=>e.kind==='in').sort((a,b)=>(a.done-b.done)||((a.day||99)-(b.day||99)));
-  h+='<section><div class="sec"><h2 class="h">Ingresos</h2><button class="link" data-act="qin-new">Otro ingreso</button></div><div class="card tight">'+(ins.length?ins.map(chkRow).join(''):empty('Añade tus ingresos en Más, Mi dinero.'))+'</div></section>';
+  const xin=Object.keys(S.paid[k]||{}).filter(id=>id.indexOf('x:')===0).map(id=>Object.assign({id},S.paid[k][id])).sort((a,b)=>String(b.d).localeCompare(String(a.d)));
+  const xrow=x=>'<button class="chk done" data-act="xin-edit" data-k="'+k+'" data-id="'+x.id+'"><span class="box">'+CHK+'</span><span class="m"><b>'+esc(x.n||'Ingreso extra')+'</b><small>Extra · '+dayLabel(x.d)+(x.acc?' · '+esc(x.acc):'')+'</small></span><span class="a">+'+fmt(x.a)+'</span></button>';
+  h+='<section><div class="sec"><h2 class="h">Ingresos</h2><button class="link" data-act="qin-new">Otro ingreso</button></div><div class="card tight">'+((ins.length||xin.length)?ins.map(chkRow).join('')+xin.map(xrow).join(''):empty('Añade tus ingresos en Más, Mi dinero.'))+'</div></section>';
+  const xex=S.expenses.filter(x=>x.date.slice(0,7)===k&&!x.fixedId).sort((a,b)=>b.date.localeCompare(a.date)||0);
+  if(xex.length){const shown=xex.slice(0,8);h+='<section><div class="sec"><h2 class="h">Gastos extra</h2><button class="link" data-act="add-exp">Anotar gasto</button></div><div class="card tight"><div class="rows">'+shown.map(x=>'<button class="row" data-act="edit-exp" data-id="'+x.id+'"><span class="m"><b>'+esc(x.name)+'</b><small>'+dayLabel(x.date)+' · '+esc(x.cat)+(x.acc?' · '+esc(x.acc):'')+'</small></span><span class="a">'+fmt2(x.amount)+'</span></button>').join('')+'</div></div>'+(xex.length>8?'<div class="stack-btns" style="margin-top:10px"><button class="link" data-tab="flujo">Ver todos los movimientos</button></div>':'')+'</section>';}
   const adv=simpleAdvice(c);
   if(adv.length)h+='<section><div class="sec"><h2 class="h">Mi consejo</h2></div><div class="card tight">'+adv.map(insHTML).join('')+'</div></section>';
   h+='<div class="stack-btns" style="margin-top:30px"><button class="btn line" data-act="cash">¿Qué hago con dinero nuevo?</button><button class="btn line" data-act="copy-summary">Copiar resumen para Claude</button></div>';
@@ -1163,6 +1167,17 @@ function quickIncome(id){
       if(ac){ac.balance=+(ac.balance+a).toFixed(2);S.moves.push({id:uid(),date:ymd(),kind:'dep',acc:ac.name,amount:a,note:'Ingreso: '+ev.name,ref:k+'i:'+id});}
       done();
       if(!rec)setTimeout(()=>toSheet(k,'i:'+id,ev.name,a,true),80);}});
+}
+function xinSheet(k,pid){
+  const r=(S.paid[k]||{})[pid];if(!r)return;
+  openSheet({title:'Ingreso extra',sub:'Puedes corregirlo o quitarlo.'+(r.acc?' Entró a <b>'+esc(r.acc)+'</b>.':''),
+    fields:[{id:'name',label:'De qué fue',type:'text',value:r.n||''},{id:'amount',label:'Monto',type:'money',value:r.a}],submit:'Guardar cambio',delLabel:'Eliminar este ingreso',
+    del:()=>{revertPaid(k,pid);closeSheet();done();toast('Ingreso eliminado.');},
+    onSubmit:v=>{const a=num(v.amount);if(!v.name.trim()||a<=0)return bad('Pon de qué fue y el monto.');
+      const old=r,ac=old.acc?accBy(old.acc):null;revertPaid(k,pid);
+      S.paid[k]=S.paid[k]||{};S.paid[k][pid]={a,acc:ac?ac.name:'',pr:0,d:old.d,n:v.name.trim(),kd:'in'};
+      if(ac){ac.balance=+(ac.balance+a).toFixed(2);S.moves.push({id:uid(),date:old.d,kind:'dep',acc:ac.name,amount:a,note:'Ingreso: '+v.name.trim(),ref:k+pid});}
+      done();}});
 }
 function newIncomeSheet(){
   openSheet({title:'Anotar un ingreso',sub:'Cualquier dinero que te entró, esté o no en tu lista.',
@@ -1226,7 +1241,7 @@ function homeBlock(c){
 }
 function revertPaid(k,id){
   const r=(S.paid[k]||{})[id];if(!r)return;
-  const isIn=id.indexOf('i:')===0;
+  const isIn=id.indexOf('i:')===0||r.kd==='in';
   if(r.acc){const ac=accBy(r.acc);if(ac)ac.balance=Math.max(0,+(ac.balance+(isIn?-r.a:r.a)).toFixed(2));}
   if(id.indexOf('d:')===0){const d=S.debts.find(x=>x.id===id.slice(2));if(d&&r.pr)d.balance=+(d.balance+r.pr).toFixed(2);S.payments=S.payments.filter(q=>q.ref!==k+id);}
   S.moves=S.moves.filter(m=>m.ref!==k+id);
@@ -1346,7 +1361,7 @@ const A={
   mprev:()=>{V.month=shiftMonth(V.month,-1);render();},mnext:()=>{V.month=shiftMonth(V.month,1);render();},
   'add-acc':()=>accSheet(),'edit-acc':t=>accSheet(find('accounts',t.dataset.id)),dep:depSheet,wd:wdSheet,mv:mvSheet,payd:paydSheet,
   buy:buySheet,cash:cashSheet,mark:t=>markSheet(t.dataset.id),
-  qpay:t=>quickPay(t.dataset.id),qin:t=>quickIncome(t.dataset.id),'qin-new':newIncomeSheet,
+  qpay:t=>quickPay(t.dataset.id),qin:t=>quickIncome(t.dataset.id),'xin-edit':t=>xinSheet(t.dataset.k,t.dataset.id),'qin-new':newIncomeSheet,
   'fixed-add':t=>expSheet(null,t.dataset.id),opening:openingSheet,'mark-past':markPastSheet,
   'load-demo':loadDemo,
   'wipe-demo':()=>{S=DEF();V.sim=null;done();},
