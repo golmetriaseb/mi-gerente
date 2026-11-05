@@ -364,7 +364,7 @@ const PLANS={
   fondo:{n:'A fondo',debt:.75,save:.1,pers:.15,d:'Máximo esfuerzo. Terminas antes, con poco margen.'}
 };
 const CATS=['Comida fuera','Transporte','Ocio','Compras','Salud','Hogar','Otros'];
-const DEF=()=>({name:'Sebas',theme:'auto',incomes:[],essentials:[],debts:[],payments:[],expenses:[],
+const DEF=()=>({name:'',welcomed:false,theme:'auto',incomes:[],essentials:[],debts:[],payments:[],expenses:[],
   goals:[{id:'emg',name:'Fondo de emergencia',saved:0,target:0,auto:true}],plan:'equilibrado',strategy:'avalancha',demo:false,accounts:[],moves:[],paid:{},open:{}});
 let S=DEF();
 try{const raw=localStorage.getItem(KEY);if(raw){S=Object.assign(DEF(),JSON.parse(raw));}}catch(e){}
@@ -792,7 +792,7 @@ function vAhorro(c){
 
 function vAjustes(){
   return head('Ajustes','Tus datos viven solo en este dispositivo.')+
-    '<section><div class="rows"><button class="row" data-act="edit-name"><span class="m"><b>Tu nombre</b><small>Cómo te saludo</small></span><span class="a">'+esc(S.name)+'</span></button></div>'+
+    '<section><div class="rows"><button class="row" data-act="edit-name"><span class="m"><b>Tu nombre</b><small>Cómo te saludo. Puedes dejarlo vacío.</small></span><span class="a">'+(S.name?esc(S.name):'Sin nombre')+'</span></button></div>'+
     '<div style="margin-top:22px"><div class="lab" style="margin-bottom:8px">Tema</div><div class="seg">'+[['auto','Automático'],['light','Claro'],['dark','Oscuro']].map(([k,l])=>'<button class="'+(S.theme===k?'on':'')+'" data-act="theme" data-v="'+k+'">'+l+'</button>').join('')+'</div></div></section>'+
     '<section><div class="sec"><h2 class="h">Respaldo</h2></div><p class="muted small" style="max-width:48ch">Si borras los datos del navegador, pierdes todo. Copia el respaldo y guárdalo en Notas. Para recuperarlo, pégalo en Restaurar.</p>'+
     '<div class="stack-btns" style="margin-top:18px"><button class="btn line" data-act="backup-copy">Copiar respaldo</button><button class="link" data-act="backup-restore">Restaurar desde respaldo</button><button class="link" data-act="copy-summary">Copiar resumen para Claude</button></div></section>'+
@@ -1116,12 +1116,13 @@ function simpleAdvice(c){
   if(c.pers>0&&out.length<3)out.push({t:'info',h:'Te quedan '+fmt(Math.max(0,c.pers-c.spent))+' para gastos personales',p:'Es lo que sobra después de tus gastos fijos, tu ahorro y tus cuotas.'});
   return out.slice(0,3);
 }
+function greeting(){const h=new Date().getHours(),g=h<12?'Buenos días':h<19?'Buenas tardes':'Buenas noches';return g+(S.name?', '+esc(S.name):'');}
 function vMes(c){
   if(!c.I&&!S.debts.length&&!S.essentials.length)return vInicio(c);
   const k=ym(),L=flowLedger(k),today=new Date();
   const inc=sum(L.filter(l=>l.kind==='in'),'amount'),paid=sum(L.filter(l=>l.kind==='out'&&l.src==='cal'),'amount'),vexp=sum(L.filter(l=>l.src==='gasto'),'amount');
   const net=inc-paid-vexp,open=S.open[k],hasOpen=open!==undefined&&open!==null,left=hasOpen?open+net:net;
-  let h=demoBanner()+'<div><div class="greet">Hola, '+esc(S.name)+'</div><div class="gdate">'+DIAS[today.getDay()]+' '+today.getDate()+' de '+MESES[today.getMonth()]+'</div></div>';
+  let h=demoBanner()+'<div><div class="greet">'+greeting()+'</div><div class="gdate">'+DIAS[today.getDay()]+' '+today.getDate()+' de '+MESES[today.getMonth()]+'</div></div>';
   h+=heroCard({label:'Me queda',chip:hasOpen?'Empecé con '+fmt(open):'',val:left,neg:left<0,
     sub:hasOpen?(left<0?'Ya usaste más de lo que tenías. Cuida lo que queda del mes.':'Lo que guardé, más lo que cobro, menos lo que pago.'):'Dime con cuánto empezaste el mes para que este número sea real.',
     three:true,foot:hv('Cobrado',fmt(inc))+hv('Pagos fijos',fmt(paid))+hv('Gastos',fmt(vexp))});
@@ -1371,7 +1372,7 @@ const A={
     onSubmit:v=>{try{const o=JSON.parse(v.t);if(!o||!Array.isArray(o.debts)||!Array.isArray(o.incomes))throw 0;S=Object.assign(DEF(),o);V.sim=null;applyTheme();done();toast('Datos restaurados.');}catch(e){return bad('El respaldo no es válido. Cópialo completo.');}}}),
   wipe:()=>openSheet({title:'Borrar todo',sub:'Se eliminan ingresos, deudas, gastos y metas de este dispositivo. No se puede deshacer.',submit:'Borrar todo',
     onSubmit:()=>{S=DEF();V.sim=null;applyTheme();done();toast('Datos borrados.');}}),
-  'edit-name':()=>openSheet({title:'Tu nombre',fields:[{id:'n',label:'Nombre',type:'text',value:S.name}],onSubmit:v=>{if(!v.n.trim())return bad('Escribe un nombre.');S.name=v.n.trim();done();}})
+  'edit-name':()=>openSheet({title:'Tu nombre',fields:[{id:'n',label:'Nombre',type:'text',value:S.name,ph:'Opcional'}],onSubmit:v=>{S.name=v.n.trim();S.welcomed=true;done();}})
 };
 document.addEventListener('click',e=>{
   const t=e.target.closest('[data-act],[data-tab]');
@@ -1397,6 +1398,14 @@ document.addEventListener('touchmove',e=>{
 },{passive:false});
 document.addEventListener('wheel',e=>{const sh=document.getElementById('sheet');if(sh&&sh.classList.contains('open')&&!(e.target.closest&&e.target.closest('.panel')))e.preventDefault();},{passive:false});
 applyTheme();render(true);
+function welcome(){
+  if(S.name||S.welcomed||S.demo)return;
+  openSheet({title:'Bienvenido',sub:'Tu dinero, claro y en un solo lugar. Todo se guarda solo en este dispositivo.',
+    fields:[{id:'n',label:'¿Cómo te llamo? (opcional)',type:'text',value:'',ph:'Tu nombre'}],submit:'Empezar',cancel:'Saltar',noFocus:true,
+    onClose:()=>{S.welcomed=true;save();render();},
+    onSubmit:v=>{S.name=v.n.trim();S.welcomed=true;done();}});
+}
+setTimeout(welcome,400);
 window.__norte={simulate,calc,S:()=>S};
 })();
 </script>
