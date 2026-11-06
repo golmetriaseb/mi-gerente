@@ -945,13 +945,15 @@ function expSheet(it,fixedId){
   fields.push({id:'name',label:'En qué fue',type:'text',value:it?it.name:'',ph:'Almuerzo, gasolina...'},
     {id:'cat',label:'Categoría (si es gasto personal)',type:'chips',options:CATS,value:it&&CATS.indexOf(it.cat)>=0?it.cat:CATS[0]},
     {id:'date',label:'Fecha',type:'date',value:it?it.date:ymd()});
+  if(it){const af=accField(false,it.acc||false);if(af)fields.splice(1,0,af);}
   openSheet({title:it?'Editar gasto':'Nuevo gasto',fields,
     del:it?()=>{expDrop(it);closeSheet();done();}:null,
     onSubmit:v=>{const a=num(v.amount);if(a<=0)return bad('Pon un monto mayor a cero.');if(!v.date)return bad('Elige la fecha.');
       const f=v.fixed&&v.fixed!==none?S.essentials.find(x=>x.name===v.fixed):null;
       const d={name:(v.name||'').trim()||(f?f.name:v.cat),amount:a,cat:f?'Gasto fijo':v.cat,date:v.date,fixedId:f?f.id:''};
       let tgt=it;
-      if(it){const ac=it.acc?accBy(it.acc):null;if(ac&&a>ac.balance+it.amount+0.005)return bad('No alcanza: '+ac.name+' tiene '+fmt2(ac.balance+it.amount)+'.');
+      if(it){const ac=v.acc!==undefined?accPick(v):(it.acc?accBy(it.acc):null);const av=ac?ac.balance+(it.acc===ac.name?it.amount:0):0;
+        if(ac&&a>av+0.005)return bad('No alcanza: '+ac.name+' tiene '+fmt2(av)+'.');
         expTake(it);Object.assign(it,d);expPut(it,ac);}
       else{tgt=Object.assign({id:uid()},d);S.expenses.push(tgt);}
       V.month=v.date.slice(0,7);done();
@@ -1171,11 +1173,11 @@ function quickIncome(id){
 }
 function xinSheet(k,pid){
   const r=(S.paid[k]||{})[pid];if(!r)return;
-  openSheet({title:'Ingreso extra',sub:'Puedes corregirlo o quitarlo.'+(r.acc?' Entró a <b>'+esc(r.acc)+'</b>.':''),
-    fields:[{id:'name',label:'De qué fue',type:'text',value:r.n||''},{id:'amount',label:'Monto',type:'money',value:r.a}],submit:'Guardar cambio',delLabel:'Eliminar este ingreso',
+  openSheet({title:'Ingreso extra',sub:'Puedes corregirlo, cambiar la cuenta o quitarlo.',
+    fields:[{id:'name',label:'De qué fue',type:'text',value:r.n||''},{id:'amount',label:'Monto',type:'money',value:r.a}].concat(accField(true,r.acc||false)?[accField(true,r.acc||false)]:[]),submit:'Guardar cambio',delLabel:'Eliminar este ingreso',
     del:()=>{revertPaid(k,pid);closeSheet();done();toast('Ingreso eliminado.');},
     onSubmit:v=>{const a=num(v.amount);if(!v.name.trim()||a<=0)return bad('Pon de qué fue y el monto.');
-      const old=r,ac=old.acc?accBy(old.acc):null;revertPaid(k,pid);
+      const old=r,ac=v.acc!==undefined?accPick(v):(old.acc?accBy(old.acc):null);revertPaid(k,pid);
       S.paid[k]=S.paid[k]||{};S.paid[k][pid]={a,acc:ac?ac.name:'',pr:0,d:old.d,n:v.name.trim(),kd:'in'};
       if(ac){ac.balance=+(ac.balance+a).toFixed(2);S.moves.push({id:uid(),date:old.d,kind:'dep',acc:ac.name,amount:a,note:'Ingreso: '+v.name.trim(),ref:k+pid});}
       done();}});
