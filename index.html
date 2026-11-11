@@ -432,7 +432,7 @@ function calc(){
   const intM=active.reduce((a,d)=>a+d.balance*d.rate/1200,0);
   const plan=simulate(S.debts,extra,S.strategy);
   const base=simulate(S.debts,0,S.strategy);
-  const spent=sum(S.expenses.filter(x=>x.date.slice(0,7)===V.month&&!x.fixedId));
+  const spent=sum(S.expenses.filter(x=>x.date.slice(0,7)===V.month&&!x.fixedId&&!isSav(x)));
   const invested=sum(S.accounts.filter(a=>a.type==='inversion'),'balance');
   const stored=sum(S.accounts,'balance');
   const cushion=active.length?(E+Mfull):E*3;
@@ -528,7 +528,7 @@ function strat(c){
 
 /* ---------- revisión del mes ---------- */
 function monthData(k){
-  const ex=S.expenses.filter(x=>x.date.slice(0,7)===k&&!x.fixedId);
+  const ex=S.expenses.filter(x=>x.date.slice(0,7)===k&&!x.fixedId&&!isSav(x));
   const by={},nm={};
   ex.forEach(x=>{by[x.cat]=(by[x.cat]||0)+x.amount;const n=x.name.trim().toLowerCase();if(!nm[n])nm[n]={n:x.name.trim(),c:0,t:0};nm[n].c++;nm[n].t+=x.amount;});
   return {ex,total:sum(ex),by,names:Object.values(nm),dep:sum(S.moves.filter(m=>m.kind==='dep'&&m.date.slice(0,7)===k),'amount'),paid:sum(S.payments.filter(q=>q.date.slice(0,7)===k),'amount')};
@@ -565,7 +565,7 @@ function review(c){
   return {verdict,items:items.slice(0,6)};
 }
 function buyResult(a,name){
-  const c=calc(),spentNow=sum(S.expenses.filter(x=>x.date.slice(0,7)===ym()&&!x.fixedId)),left=c.pers-spentNow,what=name?esc(name):'Esa compra';
+  const c=calc(),spentNow=sum(S.expenses.filter(x=>x.date.slice(0,7)===ym()&&!x.fixedId&&!isSav(x))),left=c.pers-spentNow,what=name?esc(name):'Esa compra';
   if(c.pers<=0) return insHTML({t:'info',h:'Primero completa tu plan',p:'Necesito tu ingreso, esenciales y deudas para saber cuánto puedes gastar.'});
   if(a<=left) return insHTML({t:'good',h:what+' cabe en tu presupuesto',p:'Te quedarían '+fmt(left-a)+' para el resto del mes.'});
   const over=a-Math.max(left,0);
@@ -924,7 +924,7 @@ function fromSheet(x){ // segundo paso: de dónde salió el gasto
   const af=accField(false,'');if(!af)return;
   openSheet({title:'¿De dónde salió?',sub:'<b>'+fmt2(x.amount)+'</b> · '+esc(x.name),fields:[af],submit:'Listo',cancel:'Omitir',
     onSubmit:v=>{const ac=accPick(v);if(ac&&x.amount>ac.balance+0.005)return bad('No alcanza: '+ac.name+' tiene '+fmt2(ac.balance)+'. Elige otra.');
-      if(!S.expenses.some(y=>y.id===x.id))return;expTake(x);expPut(x,ac);done();}});
+      if(!S.expenses.some(y=>y.id===x.id))return;expTake(x);expPut(x,ac);done();askSav(ac);}});
 }
 function toSheet(k,pid,name,a,after){ // segundo paso: a dónde entró el ingreso
   const af=accField(true,'');
@@ -934,6 +934,14 @@ function toSheet(k,pid,name,a,after){ // segundo paso: a dónde entró el ingres
     onSubmit:v=>{const ac=accPick(v),r=(S.paid[k]||{})[pid];
       if(ac&&r&&!r.acc){r.acc=ac.name;ac.balance=+(ac.balance+a).toFixed(2);S.lastAcc=ac.name;S.moves.push({id:uid(),date:ymd(),kind:'dep',acc:ac.name,amount:a,note:'Ingreso: '+name,ref:k+pid});}
       done();fin();}});
+}
+const SAV_Y='Mis ahorros',SAV_N='Dinero de mi mes';
+function isSav(x){const a=x&&x.acc?accBy(x.acc):null;return !!(a&&a.sav);}
+function askSav(ac){ // una sola vez por cuenta
+  if(!ac||ac.sav!==undefined)return;
+  setTimeout(()=>openSheet({title:'¿Qué es "'+esc(ac.name)+'"?',sub:'Lo que pagues desde <b>ahorros</b> baja esa cuenta, pero <b>no resta a tu mes</b>.',
+    fields:[{id:'k',label:'Esta cuenta es',type:'chips',options:[SAV_N,SAV_Y],value:SAV_N}],submit:'Listo',cancel:'Ahora no',
+    onSubmit:v=>{ac.sav=(v.k===SAV_Y);done();}}),90);
 }
 function expDrop(x){expTake(x);S.expenses=S.expenses.filter(y=>y.id!==x.id);}
 function expSheet(it,fixedId){
@@ -957,7 +965,7 @@ function expSheet(it,fixedId){
         expTake(it);Object.assign(it,d);expPut(it,ac);}
       else{tgt=Object.assign({id:uid()},d);S.expenses.push(tgt);}
       V.month=v.date.slice(0,7);done();
-      if(!it)setTimeout(()=>fromSheet(tgt),80);}});
+      if(!it)setTimeout(()=>fromSheet(tgt),80);else askSav(tgt.acc?accBy(tgt.acc):null);}});
 }
 function goalSheet(it){
   const auto=it&&it.auto;
@@ -985,14 +993,15 @@ function accSheet(it){
     fields:[{id:'name',label:'Nombre',type:'text',value:it?it.name:'',ph:'Banco Pichincha',suggest:it?[]:['Banco','Efectivo','Inversiones']},
       {id:'type',label:'Tipo',type:'chips',options:TYPE_L,value:it?typeLabel(it.type):'Banco'},
       {id:'balance',label:'Saldo actual',type:'money',value:it?it.balance:''},
+      {id:'uso',label:'Lo que pagues desde aquí',type:'chips',options:[SAV_N,SAV_Y],value:it&&it.sav?SAV_Y:SAV_N,hint:'Si es de ahorros, baja la cuenta pero no resta a tu mes.'},
       {id:'rate',label:'Rendimiento anual (solo inversiones)',type:'pct',value:it&&it.rate?it.rate:'',hint:'Déjalo vacío si no aplica.'}],
     del:it?()=>{S.accounts=S.accounts.filter(x=>x.id!==it.id);closeSheet();done();}:null,
     onSubmit:v=>{const n=v.name.trim();
       if(!n)return bad('Ponle un nombre a la cuenta.');
       if(!String(v.balance).trim())return bad('Pon el saldo, aunque sea 0.');
       if(S.accounts.some(a=>a!==it&&a.name.toLowerCase()===n.toLowerCase()))return bad('Ya tienes una cuenta con ese nombre.');
-      const d={name:n,type:TYPE_K[v.type]||'otro',balance:Math.max(0,num(v.balance)),rate:num(v.rate)};
-      if(it){if(it.name!==n){S.moves.forEach(m=>{if(m.acc===it.name)m.acc=n;if(m.to===it.name)m.to=n;});}Object.assign(it,d);}else S.accounts.push(Object.assign({id:uid()},d));
+      const d={name:n,type:TYPE_K[v.type]||'otro',balance:Math.max(0,num(v.balance)),rate:num(v.rate),sav:v.uso===SAV_Y};
+      if(it){if(it.name!==n){S.moves.forEach(m=>{if(m.acc===it.name)m.acc=n;if(m.to===it.name)m.to=n;});S.expenses.forEach(x=>{if(x.acc===it.name)x.acc=n;});Object.keys(S.paid).forEach(k=>Object.keys(S.paid[k]).forEach(i=>{if(S.paid[k][i].acc===it.name)S.paid[k][i].acc=n;}));}Object.assign(it,d);}else S.accounts.push(Object.assign({id:uid()},d));
       done();}});
 }
 function depSheet(){
@@ -1042,14 +1051,14 @@ function flowLedger(k){
     const kind=r.kd||(e?e.kind:'out'),name=r.n||(e?e.name:'Pago'),date=r.d||(e&&e.day?ymd(dueDate(e.day,k)):k+'-01');
     L.push({date,name,amount:r.a,kind,src:'cal',xid:id.indexOf('x:')===0?id:'',xk:k});
   });
-  S.expenses.filter(x=>x.date.slice(0,7)===k).forEach(x=>{const f=x.fixedId?S.essentials.find(y=>y.id===x.fixedId):null;L.push({date:x.date,name:f?(x.name&&x.name!==f.name?f.name+' · '+x.name:f.name):x.name,amount:x.amount,kind:'out',src:f?'cal':'gasto',eid:x.id});});
+  S.expenses.filter(x=>x.date.slice(0,7)===k).forEach(x=>{const f=x.fixedId?S.essentials.find(y=>y.id===x.fixedId):null;L.push({date:x.date,name:f?(x.name&&x.name!==f.name?f.name+' · '+x.name:f.name):x.name,amount:x.amount,kind:isSav(x)?'sav':'out',src:f?'cal':'gasto',eid:x.id});});
   L.sort((a,b)=>a.date.localeCompare(b.date));
-  let run=0;L.forEach(l=>{run+=l.kind==='in'?l.amount:-l.amount;l.run=run;});
+  let run=0;L.forEach(l=>{if(l.kind!=='sav')run+=l.kind==='in'?l.amount:-l.amount;l.run=run;});
   return L;
 }
 function vFlujo(c){
   const k=V.month,cur=k===ym(),L=flowLedger(k);
-  const inc=sum(L.filter(l=>l.kind==='in'),'amount'),paid=sum(L.filter(l=>l.kind==='out'&&l.src==='cal'),'amount'),vexp=sum(L.filter(l=>l.src==='gasto'),'amount');
+  const inc=sum(L.filter(l=>l.kind==='in'),'amount'),paid=sum(L.filter(l=>l.kind==='out'&&l.src==='cal'),'amount'),vexp=sum(L.filter(l=>l.src==='gasto'&&l.kind==='out'),'amount');
   const net=inc-paid-vexp,open=S.open[k],hasOpen=open!==undefined&&open!==null;
   const ev=cur?monthEvents(k):[];
   const pOut=ev.filter(e=>e.kind==='out'&&!e.done).reduce((t,e)=>t+Math.max(0,e.amount-(e.paid||0)),0),pIn=sum(ev.filter(e=>e.kind==='in'&&!e.done),'amount');
@@ -1065,10 +1074,10 @@ function vFlujo(c){
     if(hasOpen||S.accounts.length)rows+=r('Terminarías el mes con',fmt(base+pIn-pOut),base+pIn-pOut<0?'neg':'');}
   h+='<section><div class="card tight"><div class="rows">'+(rows||empty('Registra pagos, ingresos y gastos y aquí verás cómo va tu mes.'))+'</div></div><div class="stack-btns" style="margin-top:14px"><button class="link" data-act="opening">'+(hasOpen?'Cambiar':'Poner')+' con cuánto empecé el mes</button></div></section>';
   if(cur){const rv=review(c);h+='<section><div class="sec"><h2 class="h">Revisión del mes</h2>'+(rv.verdict?'<span class="tag '+rv.verdict.t+'" style="margin-left:0">'+rv.verdict.l+'</span>':'')+'</div><div class="card tight">'+rv.items.map(insHTML).join('')+'</div><div class="stack-btns" style="margin-top:16px"><button class="btn line" data-act="buy">¿Puedo comprar algo?</button></div></section>';}
-  const by={};S.expenses.filter(x=>x.date.slice(0,7)===k&&!x.fixedId).forEach(x=>by[x.cat]=(by[x.cat]||0)+x.amount);
+  const by={};S.expenses.filter(x=>x.date.slice(0,7)===k&&!x.fixedId&&!isSav(x)).forEach(x=>by[x.cat]=(by[x.cat]||0)+x.amount);
   const cats=Object.entries(by).sort((a,b)=>b[1]-a[1]);
   if(cats.length){const mx=cats[0][1];h+='<section><div class="sec"><h2 class="h">En qué gastaste</h2></div><div class="card">'+cats.map(([n,v])=>'<div class="cat"><span>'+esc(n)+'</span><div class="meter"><i style="width:'+(v/mx*100).toFixed(1)+'%"></i></div><b style="font-weight:600">'+fmt(v)+'</b></div>').join('')+'</div></section>';}
-  h+='<section><div class="sec"><h2 class="h">Todo lo que entró y salió</h2></div><div class="card tight"><div class="rows">'+(L.length?L.map(l=>'<'+(l.eid?'button data-act="edit-exp" data-id="'+l.eid+'"':(l.xid?'button data-act="xin-edit" data-k="'+l.xk+'" data-id="'+l.xid+'"':'div'))+' class="row"><span class="m"><b>'+esc(l.name)+'</b><small>'+dayLabel(l.date)+'</small></span><span class="a" style="text-align:right"><span class="'+(l.kind==='in'?'pos':'neg')+'">'+(l.kind==='in'?'+':'−')+fmt2(l.amount)+'</span><small style="display:block;color:var(--ink2);font-weight:500;font-size:12px">Balance '+fmt(l.run)+'</small></span></'+((l.eid||l.xid)?'button':'div')+'>').join(''):empty('Aún no hay movimientos este mes. Marca tus pagos como hechos o anota tus gastos.'))+'</div></div></section>';
+  h+='<section><div class="sec"><h2 class="h">Todo lo que entró y salió</h2></div><div class="card tight"><div class="rows">'+(L.length?L.map(l=>'<'+(l.eid?'button data-act="edit-exp" data-id="'+l.eid+'"':(l.xid?'button data-act="xin-edit" data-k="'+l.xk+'" data-id="'+l.xid+'"':'div'))+' class="row"><span class="m"><b>'+esc(l.name)+'</b><small>'+dayLabel(l.date)+(l.kind==='sav'?' · De ahorros':'')+'</small></span><span class="a" style="text-align:right"><span class="'+(l.kind==='in'?'pos':l.kind==='sav'?'':'neg')+'">'+(l.kind==='in'?'+':'−')+fmt2(l.amount)+'</span><small style="display:block;color:var(--ink2);font-weight:500;font-size:12px">'+(l.kind==='sav'?'No afecta tu mes':'Balance '+fmt(l.run))+'</small></span></'+((l.eid||l.xid)?'button':'div')+'>').join(''):empty('Aún no hay movimientos este mes. Marca tus pagos como hechos o anota tus gastos.'))+'</div></div></section>';
   return h;
 }
 function openingSheet(){
@@ -1122,7 +1131,7 @@ function greeting(){const h=new Date().getHours(),g=h<12?'Buenos días':h<19?'Bu
 function vMes(c){
   if(!c.I&&!S.debts.length&&!S.essentials.length)return vInicio(c);
   const k=ym(),L=flowLedger(k),today=new Date();
-  const inc=sum(L.filter(l=>l.kind==='in'),'amount'),paid=sum(L.filter(l=>l.kind==='out'&&l.src==='cal'),'amount'),vexp=sum(L.filter(l=>l.src==='gasto'),'amount');
+  const inc=sum(L.filter(l=>l.kind==='in'),'amount'),paid=sum(L.filter(l=>l.kind==='out'&&l.src==='cal'),'amount'),vexp=sum(L.filter(l=>l.src==='gasto'&&l.kind==='out'),'amount');
   const net=inc-paid-vexp,open=S.open[k],hasOpen=open!==undefined&&open!==null,left=hasOpen?open+net:net;
   let h=demoBanner()+'<div><div class="greet">'+greeting()+'</div><div class="gdate">'+DIAS[today.getDay()]+' '+today.getDate()+' de '+MESES[today.getMonth()]+'</div></div>';
   h+=heroCard({label:'Me queda',chip:hasOpen?'Empecé con '+fmt(open):'',val:left,neg:left<0,
@@ -1138,7 +1147,7 @@ function vMes(c){
   const xrow=x=>'<button class="chk done" data-act="xin-edit" data-k="'+k+'" data-id="'+x.id+'"><span class="box">'+CHK+'</span><span class="m"><b>'+esc(x.n||'Ingreso extra')+'</b><small>Extra · '+dayLabel(x.d)+(x.acc?' · '+esc(x.acc):'')+'</small></span><span class="a">+'+fmt(x.a)+'</span></button>';
   h+='<section><div class="sec"><h2 class="h">Ingresos</h2><button class="link" data-act="qin-new">Otro ingreso</button></div><div class="card tight">'+((ins.length||xin.length)?ins.map(chkRow).join('')+xin.map(xrow).join(''):empty('Añade tus ingresos en Más, Mi dinero.'))+'</div></section>';
   const xex=S.expenses.filter(x=>x.date.slice(0,7)===k&&!x.fixedId).sort((a,b)=>b.date.localeCompare(a.date)||0);
-  if(xex.length){const shown=xex.slice(0,8);h+='<section><div class="sec"><h2 class="h">Gastos extra</h2><button class="link" data-act="add-exp">Anotar gasto</button></div><div class="card tight"><div class="rows">'+shown.map(x=>'<button class="row" data-act="edit-exp" data-id="'+x.id+'"><span class="m"><b>'+esc(x.name)+'</b><small>'+dayLabel(x.date)+' · '+esc(x.cat)+(x.acc?' · '+esc(x.acc):'')+'</small></span><span class="a">'+fmt2(x.amount)+'</span></button>').join('')+'</div></div>'+(xex.length>8?'<div class="stack-btns" style="margin-top:10px"><button class="link" data-tab="flujo">Ver todos los movimientos</button></div>':'')+'</section>';}
+  if(xex.length){const shown=xex.slice(0,8);h+='<section><div class="sec"><h2 class="h">Gastos extra</h2><button class="link" data-act="add-exp">Anotar gasto</button></div><div class="card tight"><div class="rows">'+shown.map(x=>'<button class="row" data-act="edit-exp" data-id="'+x.id+'"><span class="m"><b>'+esc(x.name)+'</b><small>'+dayLabel(x.date)+' · '+esc(x.cat)+(x.acc?' · '+esc(x.acc):'')+(isSav(x)?' · no afecta tu mes':'')+'</small></span><span class="a">'+fmt2(x.amount)+'</span></button>').join('')+'</div></div>'+(xex.length>8?'<div class="stack-btns" style="margin-top:10px"><button class="link" data-tab="flujo">Ver todos los movimientos</button></div>':'')+'</section>';}
   const adv=simpleAdvice(c);
   if(adv.length)h+='<section><div class="sec"><h2 class="h">Mi consejo</h2></div><div class="card tight">'+adv.map(insHTML).join('')+'</div></section>';
   h+='<div class="stack-btns" style="margin-top:30px"><button class="btn line" data-act="cash">¿Qué hago con dinero nuevo?</button><button class="btn line" data-act="copy-summary">Copiar resumen para Claude</button></div>';
